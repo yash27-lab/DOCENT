@@ -75,4 +75,8 @@ Public sample forms are included in [samples/README.md](./samples/README.md).
 - The preload bridge is minimal
 - PDF inspection happens locally in the Electron main process
 
-See [SECURITY.md](./SECURITY.md) for the current boundary and backend controls you would need before turning this into a networked product.
+See [SECURITY.md](./SECURITY.md) for the current security boundary of the desktop application.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).
