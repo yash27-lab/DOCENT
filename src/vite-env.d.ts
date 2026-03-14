@@ -1,0 +1,43 @@
+/// <reference types="vite/client" />
+
+interface DocentMetadata {
+  name: string;
+  version: string;
+  chrome: string;
+  electron: string;
+  platform: string;
+}
+
+type InspectionStatus = "Parsed locally" | "Metadata only" | "Error";
+
+interface PickedDocument {
+  name: string;
+  path: string;
+  extension: string;
+  fileSizeBytes: number;
+  modifiedAt: string;
+  sha256: string;
+  parser: string;
+  pageCount: number | null;
+  previewText: string;
+  previewPages: number;
+  extractedCharacters: number;
+  status: InspectionStatus;
+  note: string;
+  metadata: {
+    title: string;
+    author: string;
+    creator: string;
+    producer: string;
+    subject: string;
+  };
+}
+
+interface Window {
+  docent: {
+    getMetadata: () => Promise<DocentMetadata>;
+    openExternal: (url: string) => Promise<boolean>;
+    pickDocuments: () => Promise<PickedDocument[]>;
+    inspectDocuments: (paths: string[]) => Promise<PickedDocument[]>;
+  };
+}

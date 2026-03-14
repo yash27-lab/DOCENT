@@ -1,0 +1,32 @@
+{
+  "name": "docent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop-first document operations control plane built with Electron and React.",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\" \"npm:dev:run\"",
+    "dev:renderer": "vite",
+    "dev:electron": "tsc -p tsconfig.node.json --watch --preserveWatchOutput",
+    "dev:run": "wait-on tcp:5173 dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron dist-electron/electron/main.js",
+    "build": "tsc -p tsconfig.node.json && vite build",
+    "start": "electron dist-electron/electron/main.js"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
+    "electron": "^41.0.2",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.4",
+    "wait-on": "^8.0.4"
+  }
+}
