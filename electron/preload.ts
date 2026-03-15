@@ -4,5 +4,6 @@ contextBridge.exposeInMainWorld("docent", {
   getMetadata: () => ipcRenderer.invoke("app:get-metadata"),
   openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url),
   pickDocuments: () => ipcRenderer.invoke("documents:pick"),
-  inspectDocuments: (paths: string[]) => ipcRenderer.invoke("documents:inspect", paths)
+  inspectDocuments: (paths: string[]) => ipcRenderer.invoke("documents:inspect", paths),
+  exportReport: (report: unknown) => ipcRenderer.invoke("documents:export-report", report)
 });

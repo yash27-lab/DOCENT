@@ -33,11 +33,36 @@ interface PickedDocument {
   };
 }
 
+interface InspectionReport {
+  generatedAt: string;
+  summary: {
+    documentsSelected: number;
+    parsedLocally: number;
+    metadataOnly: number;
+    issues: number;
+    duplicates: number;
+    totalPages: number;
+    activeFilter: string | null;
+  };
+  documents: Array<
+    PickedDocument & {
+      duplicate: boolean;
+      duplicateCount: number;
+    }
+  >;
+}
+
+interface ExportReportResult {
+  saved: boolean;
+  path?: string;
+}
+
 interface Window {
   docent: {
     getMetadata: () => Promise<DocentMetadata>;
     openExternal: (url: string) => Promise<boolean>;
     pickDocuments: () => Promise<PickedDocument[]>;
     inspectDocuments: (paths: string[]) => Promise<PickedDocument[]>;
+    exportReport: (report: InspectionReport) => Promise<ExportReportResult>;
   };
 }

@@ -72,12 +72,64 @@ function formatDate(value: string) {
   return date.toLocaleString();
 }
 
+function buildSearchText(item: QueueItem) {
+  return [
+    item.name,
+    item.extension,
+    item.path,
+    item.parser,
+    item.note,
+    item.previewText,
+    item.metadata.title,
+    item.metadata.author,
+    item.metadata.creator,
+    item.metadata.producer,
+    item.metadata.subject
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildInspectionReport(
+  queue: QueueItem[],
+  duplicateFingerprintCounts: Map<string, number>,
+  activeFilter: string
+): InspectionReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: {
+      documentsSelected: queue.length,
+      parsedLocally: queue.filter((item) => item.status === "Parsed locally").length,
+      metadataOnly: queue.filter((item) => item.status === "Metadata only").length,
+      issues: queue.filter((item) => item.status === "Error").length,
+      duplicates: queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length,
+      totalPages: queue.reduce((total, item) => total + (item.pageCount ?? 0), 0),
+      activeFilter: activeFilter.trim() || null
+    },
+    documents: queue.map((item) => ({
+      ...item,
+      duplicate: (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1,
+      duplicateCount: duplicateFingerprintCounts.get(item.sha256) ?? 1
+    }))
+  };
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<View>("operations");
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue.map((item) => item as QueueItem));
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [meta, setMeta] = useState<string>("Secure desktop shell");
   const [isRunning, setIsRunning] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [filterValue, setFilterValue] = useState("");
+  const [exportMessage, setExportMessage] = useState("");
+
+  const normalizedFilter = filterValue.trim().toLowerCase();
+  const duplicateFingerprintCounts = queue.reduce((counts, item) => {
+    counts.set(item.sha256, (counts.get(item.sha256) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const filteredQueue = queue.filter((item) => buildSearchText(item).includes(normalizedFilter));
 
   useEffect(() => {
     void window.docent.getMetadata().then((result) => {
@@ -88,16 +140,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (queue.length === 0) {
+    if (filteredQueue.length === 0) {
       setSelectedDocumentId(null);
       return;
     }
 
-    setSelectedDocumentId((current) => (current && queue.some((item) => item.id === current) ? current : queue[0].id));
-  }, [queue]);
+    setSelectedDocumentId((current) =>
+      current && filteredQueue.some((item) => item.id === current) ? current : filteredQueue[0].id
+    );
+  }, [queue, normalizedFilter]);
 
   async function handlePickDocuments() {
     setIsRunning(true);
+    setExportMessage("");
     const picked = await window.docent.pickDocuments();
     setIsRunning(false);
 
@@ -117,19 +172,39 @@ export default function App() {
     }
 
     setIsRunning(true);
+    setExportMessage("");
     const inspected = await window.docent.inspectDocuments(queue.map((item) => item.path));
     setQueue(inspected.map(toQueueItem));
     setIsRunning(false);
+  }
+
+  async function handleExportReport() {
+    if (queue.length === 0) {
+      return;
+    }
+
+    setIsExporting(true);
+    const result = await window.docent.exportReport(buildInspectionReport(queue, duplicateFingerprintCounts, filterValue));
+    setIsExporting(false);
+
+    if (!result.saved) {
+      setExportMessage("Export canceled.");
+      return;
+    }
+
+    setExportMessage(result.path ? `Inspection report saved to ${result.path}` : "Inspection report saved.");
   }
 
   function openSource(url: string) {
     void window.docent.openExternal(url);
   }
 
-  const selectedDocument = queue.find((item) => item.id === selectedDocumentId) ?? null;
+  const selectedDocument = filteredQueue.find((item) => item.id === selectedDocumentId) ?? null;
   const parsedCount = queue.filter((item) => item.status === "Parsed locally").length;
   const issueCount = queue.filter((item) => item.status === "Error").length;
   const totalPages = queue.reduce((total, item) => total + (item.pageCount ?? 0), 0);
+  const duplicateCount = queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length;
+  const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
 
   return (
     <div className="shell">
@@ -218,6 +293,11 @@ export default function App() {
             <div className="metric-value">{totalPages}</div>
             <div className="metric-label">Pages identified</div>
           </article>
+
+          <article className="metric-card">
+            <div className="metric-value">{duplicateCount}</div>
+            <div className="metric-label">Duplicate fingerprints</div>
+          </article>
         </section>
 
         {activeView === "operations" && (
@@ -232,6 +312,31 @@ export default function App() {
                   {isRunning ? "Inspecting locally" : issueCount > 0 ? `${issueCount} issue(s)` : "Ready"}
                 </div>
               </div>
+
+              <div className="panel-toolbar">
+                <label className="search-shell">
+                  <span className="search-label">Search queue</span>
+                  <input
+                    className="search-input"
+                    onChange={(event) => setFilterValue(event.target.value)}
+                    placeholder="Filter by name, metadata, path, or extracted text"
+                    type="text"
+                    value={filterValue}
+                  />
+                </label>
+
+                <div className="toolbar-actions">
+                  <div className="toolbar-meta">
+                    {filteredQueue.length} result{filteredQueue.length === 1 ? "" : "s"}
+                  </div>
+                  <button className="utility-button" disabled={queue.length === 0 || isExporting} onClick={handleExportReport} type="button">
+                    {isExporting ? "Saving report" : "Export JSON report"}
+                  </button>
+                </div>
+              </div>
+
+              {exportMessage ? <p className="inline-note">{exportMessage}</p> : null}
+
               <div className="table">
                 <div className="table-head">
                   <span>Document</span>
@@ -240,31 +345,40 @@ export default function App() {
                   <span>Extracted</span>
                   <span>Status</span>
                 </div>
-                {queue.length === 0 ? (
+                {filteredQueue.length === 0 ? (
                   <div className="empty-state">
-                    <strong>No staged documents</strong>
-                    <p>Select documents to inspect them locally. PDFs will show real metadata and extracted preview text.</p>
+                    <strong>{queue.length === 0 ? "No staged documents" : "No matching documents"}</strong>
+                    <p>
+                      {queue.length === 0
+                        ? "Select documents to inspect them locally. PDFs will show real metadata and extracted preview text."
+                        : "Adjust the filter to see matching documents or export the full inspection report."}
+                    </p>
                   </div>
                 ) : (
-                  queue.map((item) => (
-                    <button
-                      className={selectedDocumentId === item.id ? "table-row table-row-active" : "table-row"}
-                      key={item.id}
-                      onClick={() => setSelectedDocumentId(item.id)}
-                      type="button"
-                    >
-                      <span>
-                        <strong>{item.name}</strong>
-                        <small>
-                          {item.extension}  •  {formatBytes(item.fileSizeBytes)}
-                        </small>
-                      </span>
-                      <span>{item.pageCount ?? "n/a"}</span>
-                      <span>{item.parser}</span>
-                      <span>{item.extractedCharacters ? `${item.extractedCharacters} chars` : "n/a"}</span>
-                      <span className={`status-tag status-${item.status.replace(/\s+/g, "-").toLowerCase()}`}>{item.status}</span>
-                    </button>
-                  ))
+                  filteredQueue.map((item) => {
+                    const duplicateFingerprintCount = duplicateFingerprintCounts.get(item.sha256) ?? 1;
+
+                    return (
+                      <button
+                        className={selectedDocumentId === item.id ? "table-row table-row-active" : "table-row"}
+                        key={item.id}
+                        onClick={() => setSelectedDocumentId(item.id)}
+                        type="button"
+                      >
+                        <span>
+                          <strong>{item.name}</strong>
+                          <small>
+                            {item.extension}  •  {formatBytes(item.fileSizeBytes)}
+                          </small>
+                          {duplicateFingerprintCount > 1 ? <small className="table-flag">Duplicate fingerprint in queue</small> : null}
+                        </span>
+                        <span>{item.pageCount ?? "n/a"}</span>
+                        <span>{item.parser}</span>
+                        <span>{item.extractedCharacters ? `${item.extractedCharacters} chars` : "n/a"}</span>
+                        <span className={`status-tag status-${item.status.replace(/\s+/g, "-").toLowerCase()}`}>{item.status}</span>
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </article>
@@ -277,6 +391,11 @@ export default function App() {
                   <div className="brief-row">
                     <strong>Status</strong>
                     <p>{selectedDocument.note}</p>
+                    {selectedDuplicateCount > 1 ? (
+                      <p className="supporting-note">
+                        This fingerprint appears in {selectedDuplicateCount} staged files. The queue can now flag local duplicates before any downstream handling.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="detail-grid">
@@ -291,6 +410,10 @@ export default function App() {
                     <div className="detail-item">
                       <span>Fingerprint</span>
                       <strong className="code-line">{selectedDocument.sha256}</strong>
+                    </div>
+                    <div className="detail-item">
+                      <span>Duplicate Count</span>
+                      <strong>{selectedDuplicateCount}</strong>
                     </div>
                   </div>
 
@@ -315,7 +438,11 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <p className="lead">Select documents to inspect them locally. PDFs will show extracted text and metadata here.</p>
+                <p className="lead">
+                  {queue.length === 0
+                    ? "Select documents to inspect them locally. PDFs will show extracted text and metadata here."
+                    : "Select a visible document from the filtered queue to inspect its metadata and preview."}
+                </p>
               )}
             </article>
           </section>
@@ -375,8 +502,9 @@ export default function App() {
               <ul className="list">
                 <li>Files are selected locally through Electron, not through browser upload controls.</li>
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
+                <li>The queue can search extracted content and flag duplicate fingerprints without any network call.</li>
+                <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>
-                <li>Non-PDF files are admitted, but only filesystem metadata is shown until more parsers are added.</li>
               </ul>
             </article>
           </section>

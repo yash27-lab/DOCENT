@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from "electron";
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFParse } from "pdf-parse";
 
@@ -33,6 +33,25 @@ type DocumentInspection = {
     producer: string;
     subject: string;
   };
+};
+
+type InspectionReport = {
+  generatedAt: string;
+  summary: {
+    documentsSelected: number;
+    parsedLocally: number;
+    metadataOnly: number;
+    issues: number;
+    duplicates: number;
+    totalPages: number;
+    activeFilter: string | null;
+  };
+  documents: Array<
+    DocumentInspection & {
+      duplicate: boolean;
+      duplicateCount: number;
+    }
+  >;
 };
 
 function isSafeExternalUrl(rawUrl: string) {
@@ -257,3 +276,28 @@ ipcMain.handle("documents:pick", async () => {
 });
 
 ipcMain.handle("documents:inspect", async (_event, filePaths: string[]) => inspectDocuments(filePaths));
+
+ipcMain.handle("documents:export-report", async (_event, report: InspectionReport) => {
+  const targetWindow = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!targetWindow) {
+    return { saved: false };
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const result = await dialog.showSaveDialog(targetWindow, {
+    title: "Export inspection report",
+    defaultPath: path.join(app.getPath("documents"), `docent-inspection-report-${timestamp}.json`),
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { saved: false };
+  }
+
+  await writeFile(result.filePath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  return {
+    saved: true,
+    path: result.filePath
+  };
+});
