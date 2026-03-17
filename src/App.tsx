@@ -28,6 +28,7 @@ type QueueItem = {
   parser: string;
   note: string;
   metadata: PickedDocument["metadata"];
+  analysis: PickedDocument["analysis"];
   status: QueueStatus;
 };
 
@@ -47,6 +48,7 @@ function toQueueItem(document: PickedDocument): QueueItem {
     parser: document.parser,
     note: document.note,
     metadata: document.metadata,
+    analysis: document.analysis,
     status: document.status
   };
 }
@@ -84,7 +86,11 @@ function buildSearchText(item: QueueItem) {
     item.metadata.author,
     item.metadata.creator,
     item.metadata.producer,
-    item.metadata.subject
+    item.metadata.subject,
+    item.analysis.documentClass,
+    item.analysis.sensitivity,
+    item.analysis.summary,
+    item.analysis.signals.join(" ")
   ]
     .join(" ")
     .toLowerCase();
@@ -100,8 +106,10 @@ function buildInspectionReport(
     summary: {
       documentsSelected: queue.length,
       parsedLocally: queue.filter((item) => item.status === "Parsed locally").length,
+      classified: queue.filter((item) => item.analysis.confidence >= 60).length,
       metadataOnly: queue.filter((item) => item.status === "Metadata only").length,
       issues: queue.filter((item) => item.status === "Error").length,
+      restricted: queue.filter((item) => item.analysis.sensitivity === "Restricted").length,
       duplicates: queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length,
       totalPages: queue.reduce((total, item) => total + (item.pageCount ?? 0), 0),
       activeFilter: activeFilter.trim() || null
@@ -201,7 +209,9 @@ export default function App() {
 
   const selectedDocument = filteredQueue.find((item) => item.id === selectedDocumentId) ?? null;
   const parsedCount = queue.filter((item) => item.status === "Parsed locally").length;
+  const classifiedCount = queue.filter((item) => item.analysis.confidence >= 60).length;
   const issueCount = queue.filter((item) => item.status === "Error").length;
+  const restrictedCount = queue.filter((item) => item.analysis.sensitivity === "Restricted").length;
   const totalPages = queue.reduce((total, item) => total + (item.pageCount ?? 0), 0);
   const duplicateCount = queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length;
   const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
@@ -264,10 +274,11 @@ export default function App() {
         <section className="hero-grid">
           <article className="hero-card hero-card-primary">
             <div className="panel-label">Local Parsing</div>
-            <h3>PDF inspection now runs on-device</h3>
+            <h3>PDF inspection and local classification now run on-device</h3>
             <p>
               Selected PDF files are parsed locally in the Electron main process. The app extracts real page counts,
-              metadata, SHA-256 fingerprints, and preview text from the first two pages without sending files anywhere.
+              metadata, SHA-256 fingerprints, preview text, likely document type, and handling sensitivity without
+              sending files anywhere.
             </p>
             <div className="hero-actions">
               <button className="link-button" onClick={handlePickDocuments} type="button">
@@ -306,7 +317,7 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <div className="panel-label">Staging Queue</div>
-                  <h3>Local document inspection results</h3>
+                  <h3>Local document inspection and intelligence</h3>
                 </div>
                 <div className={isRunning ? "status-pill status-pill-live" : "status-pill"}>
                   {isRunning ? "Inspecting locally" : issueCount > 0 ? `${issueCount} issue(s)` : "Ready"}
@@ -332,6 +343,25 @@ export default function App() {
                   <button className="utility-button" disabled={queue.length === 0 || isExporting} onClick={handleExportReport} type="button">
                     {isExporting ? "Saving report" : "Export JSON report"}
                   </button>
+                </div>
+              </div>
+
+              <div className="summary-strip">
+                <div className="summary-chip">
+                  <span>Classified documents</span>
+                  <strong>{classifiedCount}</strong>
+                </div>
+                <div className="summary-chip">
+                  <span>Restricted handling</span>
+                  <strong>{restrictedCount}</strong>
+                </div>
+                <div className="summary-chip">
+                  <span>Duplicate fingerprints</span>
+                  <strong>{duplicateCount}</strong>
+                </div>
+                <div className="summary-chip">
+                  <span>Pages identified</span>
+                  <strong>{totalPages}</strong>
                 </div>
               </div>
 
@@ -370,6 +400,9 @@ export default function App() {
                           <small>
                             {item.extension}  •  {formatBytes(item.fileSizeBytes)}
                           </small>
+                          <small className="table-classification">
+                            {item.analysis.documentClass}  •  {item.analysis.sensitivity}
+                          </small>
                           {duplicateFingerprintCount > 1 ? <small className="table-flag">Duplicate fingerprint in queue</small> : null}
                         </span>
                         <span>{item.pageCount ?? "n/a"}</span>
@@ -398,6 +431,25 @@ export default function App() {
                     ) : null}
                   </div>
 
+                  <div className="analysis-card">
+                    <span>Local intelligence summary</span>
+                    <strong>{selectedDocument.analysis.summary}</strong>
+                    <div className="analysis-grid">
+                      <div className="detail-item">
+                        <span>Document class</span>
+                        <strong>{selectedDocument.analysis.documentClass}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>Sensitivity</span>
+                        <strong>{selectedDocument.analysis.sensitivity}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>Confidence</span>
+                        <strong>{selectedDocument.analysis.confidence}%</strong>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="detail-grid">
                     <div className="detail-item">
                       <span>Path</span>
@@ -416,6 +468,17 @@ export default function App() {
                       <strong>{selectedDuplicateCount}</strong>
                     </div>
                   </div>
+
+                  {selectedDocument.analysis.signals.length > 0 ? (
+                    <div className="detail-item">
+                      <span>Detected signals</span>
+                      <ul className="signal-list">
+                        {selectedDocument.analysis.signals.map((signal) => (
+                          <li key={signal}>{signal}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
 
                   <div className="metadata-grid">
                     {[
@@ -502,6 +565,7 @@ export default function App() {
               <ul className="list">
                 <li>Files are selected locally through Electron, not through browser upload controls.</li>
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
+                <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
                 <li>The queue can search extracted content and flag duplicate fingerprints without any network call.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>

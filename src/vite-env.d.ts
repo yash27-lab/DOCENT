@@ -31,6 +31,13 @@ interface PickedDocument {
     producer: string;
     subject: string;
   };
+  analysis: {
+    documentClass: string;
+    sensitivity: "Restricted" | "Internal" | "Standard" | "Unknown";
+    confidence: number;
+    summary: string;
+    signals: string[];
+  };
 }
 
 interface InspectionReport {
@@ -38,8 +45,10 @@ interface InspectionReport {
   summary: {
     documentsSelected: number;
     parsedLocally: number;
+    classified: number;
     metadataOnly: number;
     issues: number;
+    restricted: number;
     duplicates: number;
     totalPages: number;
     activeFilter: string | null;

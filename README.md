@@ -23,6 +23,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 - Select documents through the native Electron file picker
 - Parse PDF files locally on-device
 - Show real page counts, document metadata, SHA-256 fingerprints, and extracted preview text
+- Infer likely document type and handling sensitivity from parsed text without leaving the device
 - Search the queue by filename, metadata, path, or extracted text
 - Flag duplicate documents locally through SHA-256 fingerprint matching
 - Export a local JSON inspection report for review or audit handoff
@@ -43,7 +44,7 @@ The current repository is intentionally narrow. It proves the desktop intake and
 
 - Add structured field extraction for common document classes
 - Add OCR for scanned PDFs and image-based documents
-- Add document classification and confidence scoring
+- Expand the local classification heuristics into document-specific extraction workflows
 - Add side-by-side review and correction before export
 - Add templates for invoices, tax forms, onboarding packets, and internal forms
 - Add export adapters for CRMs, ERPs, ticketing systems, and internal APIs

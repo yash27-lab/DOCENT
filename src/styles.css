@@ -336,6 +336,34 @@ button {
   line-height: 1.6;
 }
 
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.summary-chip {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+}
+
+.summary-chip span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.summary-chip strong {
+  font-size: 1.4rem;
+  letter-spacing: -0.04em;
+}
+
 .utility-button {
   border-radius: 14px;
   padding: 13px 16px;
@@ -426,6 +454,11 @@ button {
   color: var(--text-muted);
 }
 
+.table-classification {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .table-flag {
   color: var(--warning);
   font-weight: 600;
@@ -493,6 +526,13 @@ button {
   gap: 12px;
 }
 
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
 .detail-item {
   padding: 14px 16px;
   border-radius: 16px;
@@ -519,10 +559,33 @@ button {
   font-size: 0.82rem;
 }
 
+.analysis-card,
 .preview-card {
   padding: 16px;
   border-radius: 18px;
   border: 1px solid var(--line);
+}
+
+.analysis-card {
+  background: var(--surface-strong);
+}
+
+.analysis-card > span,
+.preview-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.analysis-card > strong {
+  display: block;
+  line-height: 1.6;
+}
+
+.preview-card {
   background: #f7fafc;
 }
 
@@ -534,6 +597,13 @@ button {
   font-size: 0.83rem;
   line-height: 1.6;
   color: #213341;
+}
+
+.signal-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  line-height: 1.7;
 }
 
 .pipeline-grid,
@@ -604,6 +674,11 @@ button {
   .content-grid {
     grid-template-columns: 1fr;
   }
+
+  .summary-strip,
+  .analysis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
@@ -622,6 +697,18 @@ button {
   .security-grid,
   .split-grid {
     grid-template-columns: 1fr;
+  }
+
+  .panel-toolbar,
+  .toolbar-actions,
+  .summary-strip,
+  .analysis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-toolbar,
+  .toolbar-actions {
+    display: grid;
   }
 
   .table-head {

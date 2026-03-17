@@ -33,6 +33,13 @@ type DocumentInspection = {
     producer: string;
     subject: string;
   };
+  analysis: {
+    documentClass: string;
+    sensitivity: "Restricted" | "Internal" | "Standard" | "Unknown";
+    confidence: number;
+    summary: string;
+    signals: string[];
+  };
 };
 
 type InspectionReport = {
@@ -40,8 +47,10 @@ type InspectionReport = {
   summary: {
     documentsSelected: number;
     parsedLocally: number;
+    classified: number;
     metadataOnly: number;
     issues: number;
+    restricted: number;
     duplicates: number;
     totalPages: number;
     activeFilter: string | null;
@@ -129,6 +138,108 @@ function normalizeText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function countKeywordMatches(source: string, patterns: RegExp[]) {
+  return patterns.reduce((total, pattern) => total + (pattern.test(source) ? 1 : 0), 0);
+}
+
+function analyzeDocument(
+  extension: string,
+  previewText: string,
+  metadata: DocumentInspection["metadata"]
+): DocumentInspection["analysis"] {
+  if (extension !== "PDF" || !previewText) {
+    return {
+      documentClass: extension === "PDF" ? "Unclassified PDF" : "Unparsed file",
+      sensitivity: extension === "PDF" ? "Standard" : "Unknown",
+      confidence: extension === "PDF" ? 24 : 0,
+      summary: extension === "PDF"
+        ? "PDF parsed locally, but there was not enough extracted text to classify it with confidence."
+        : "No content analysis is available for this file type yet.",
+      signals: []
+    };
+  }
+
+  const source = `${previewText}\n${metadata.title}\n${metadata.subject}`.toLowerCase();
+  const profiles = [
+    {
+      label: "Tax form",
+      patterns: [/irs\b/i, /\bw-9\b/i, /\b1040\b/i, /\b1099\b/i, /taxpayer/i, /withholding/i, /internal revenue/i]
+    },
+    {
+      label: "Employment verification form",
+      patterns: [/\bi-9\b/i, /employment eligibility/i, /employer/i, /employee/i, /citizenship/i, /alien/i]
+    },
+    {
+      label: "Healthcare claim or intake form",
+      patterns: [/\bcms-1500\b/i, /patient/i, /provider/i, /diagnosis/i, /insurance/i, /subscriber/i, /treatment/i]
+    },
+    {
+      label: "Invoice or billing document",
+      patterns: [/invoice/i, /amount due/i, /bill to/i, /subtotal/i, /payment terms/i, /purchase order/i]
+    },
+    {
+      label: "Contract or legal agreement",
+      patterns: [/agreement/i, /party/i, /effective date/i, /terms and conditions/i, /governing law/i, /signature/i]
+    },
+    {
+      label: "General form",
+      patterns: [/form/i, /signature/i, /name/i, /address/i, /date/i]
+    }
+  ];
+
+  let bestProfile = { label: "General PDF", score: 0 };
+
+  for (const profile of profiles) {
+    const score = countKeywordMatches(source, profile.patterns);
+    if (score > bestProfile.score) {
+      bestProfile = { label: profile.label, score };
+    }
+  }
+
+  const signals: string[] = [];
+
+  if (/social security|ssn|taxpayer identification|tin\b/i.test(source)) {
+    signals.push("National identifier language detected");
+  }
+
+  if (/patient|diagnosis|insurance|provider|treatment/i.test(source)) {
+    signals.push("Healthcare-related language detected");
+  }
+
+  if (/bank account|routing number|payment terms|amount due|invoice/i.test(source)) {
+    signals.push("Financial or billing language detected");
+  }
+
+  if (/employee|employer|citizenship|employment eligibility|passport/i.test(source)) {
+    signals.push("Employment verification language detected");
+  }
+
+  if (/signature|sign here|authorized signature/i.test(source)) {
+    signals.push("Signature fields detected");
+  }
+
+  if (/address|phone|email|contact/i.test(source)) {
+    signals.push("Contact information fields detected");
+  }
+
+  const sensitivity: DocumentInspection["analysis"]["sensitivity"] = /social security|ssn|taxpayer identification|patient|diagnosis|insurance|passport|date of birth|dob/i.test(source)
+    ? "Restricted"
+    : /invoice|payment|employee|vendor|purchase order|contract/i.test(source)
+      ? "Internal"
+      : "Standard";
+
+  const confidence = bestProfile.score === 0 ? 42 : Math.min(96, 54 + bestProfile.score * 9);
+  const summary = `Likely ${bestProfile.label.toLowerCase()}. ${sensitivity} handling recommended.${signals.length > 0 ? ` ${signals[0]}.` : ""}`;
+
+  return {
+    documentClass: bestProfile.label,
+    sensitivity,
+    confidence,
+    summary,
+    signals
+  };
+}
+
 async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   const fileStats = await stat(filePath);
   const extension = path.extname(filePath).replace(".", "").toUpperCase() || "FILE";
@@ -156,6 +267,13 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
       creator: "",
       producer: "",
       subject: ""
+    },
+    analysis: {
+      documentClass: "Unparsed file",
+      sensitivity: "Unknown",
+      confidence: 0,
+      summary: "No content analysis is available for this file type yet.",
+      signals: []
     }
   };
 
@@ -185,7 +303,14 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
         creator: String(info.info?.Creator ?? ""),
         producer: String(info.info?.Producer ?? ""),
         subject: String(info.info?.Subject ?? "")
-      }
+      },
+      analysis: analyzeDocument(extension, previewText, {
+        title: String(info.info?.Title ?? ""),
+        author: String(info.info?.Author ?? ""),
+        creator: String(info.info?.Creator ?? ""),
+        producer: String(info.info?.Producer ?? ""),
+        subject: String(info.info?.Subject ?? "")
+      })
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown PDF parse error";
