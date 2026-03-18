@@ -18,9 +18,13 @@ This repository currently ships a desktop Electron client only. There is no back
   - external-link brokering
   - document picking
   - local document reinspection
+  - local file reveal for already-selected documents
 - The renderer uses a restrictive Content Security Policy and does not load remote scripts.
 - PDF files are parsed locally in the Electron main process with `pdf-parse`.
 - The app computes local SHA-256 fingerprints and shows document metadata and text previews without sending files off-device.
+- Inspection requests are constrained to allowlisted local file extensions and capped batch sizes.
+- Oversized PDFs fall back to metadata-only handling instead of unbounded local parsing.
+- Broken or inaccessible files fail per-document instead of aborting the full inspection batch.
 
 Relevant code:
 

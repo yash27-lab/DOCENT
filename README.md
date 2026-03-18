@@ -2,6 +2,12 @@
 
 DOCENT is a desktop-first document operations workspace built with Electron, React, and TypeScript. It inspects selected files locally and is designed to demonstrate a more professional, security-conscious document intake flow than qomplement's current website positioning.
 
+## Latest update
+
+- Added stricter local inspection guardrails for file types, batch size, and oversized PDF handling
+- Added queue management actions to reveal local files, remove selected items, and clear the queue safely
+- Hardened the local inspection path so invalid or broken files fail individually instead of breaking the whole batch
+
 ## Problem
 
 Document-heavy teams still lose time on work that should be structured but usually is not. Internal operations, finance, healthcare, legal support, logistics, and back-office teams routinely receive PDFs, scans, spreadsheets, and forms that must be reviewed, interpreted, re-entered, approved, and delivered into another system. The file is only one part of the workflow. The real operational burden is the handoff between intake, validation, decision-making, and downstream execution.

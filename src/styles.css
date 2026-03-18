@@ -373,6 +373,11 @@ button {
   border: 1px solid rgba(31, 79, 123, 0.18);
 }
 
+.utility-button-danger {
+  color: var(--danger);
+  border-color: rgba(126, 63, 70, 0.18);
+}
+
 .utility-button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
@@ -491,6 +496,12 @@ button {
   display: grid;
   gap: 14px;
   margin-top: 14px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .brief-row,
@@ -709,6 +720,10 @@ button {
   .panel-toolbar,
   .toolbar-actions {
     display: grid;
+  }
+
+  .detail-actions {
+    flex-direction: column;
   }
 
   .table-head {

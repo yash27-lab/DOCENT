@@ -72,6 +72,7 @@ interface Window {
     openExternal: (url: string) => Promise<boolean>;
     pickDocuments: () => Promise<PickedDocument[]>;
     inspectDocuments: (paths: string[]) => Promise<PickedDocument[]>;
+    revealDocument: (path: string) => Promise<boolean>;
     exportReport: (report: InspectionReport) => Promise<ExportReportResult>;
   };
 }

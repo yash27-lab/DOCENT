@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from "electron";
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFParse } from "pdf-parse";
@@ -11,6 +12,9 @@ let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const previewPages = 2;
 const previewCharacters = 5000;
+const maxInspectionFiles = 24;
+const maxPdfParseBytes = 15 * 1024 * 1024;
+const supportedDocumentExtensions = new Set(["PDF", "DOC", "DOCX", "XLS", "XLSX", "CSV", "PNG", "JPG", "JPEG", "TIF", "TIFF"]);
 
 type DocumentInspection = {
   name: string;
@@ -138,6 +142,100 @@ function normalizeText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function formatBytes(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getExtension(filePath: string) {
+  return path.extname(filePath).replace(".", "").toUpperCase() || "FILE";
+}
+
+function buildErrorInspection(filePath: string, note: string): DocumentInspection {
+  return {
+    name: path.basename(filePath),
+    path: filePath,
+    extension: getExtension(filePath),
+    fileSizeBytes: 0,
+    modifiedAt: "",
+    sha256: "",
+    parser: "Filesystem only",
+    pageCount: null,
+    previewText: "",
+    previewPages: 0,
+    extractedCharacters: 0,
+    status: "Error",
+    note,
+    metadata: {
+      title: "",
+      author: "",
+      creator: "",
+      producer: "",
+      subject: ""
+    },
+    analysis: {
+      documentClass: "Unavailable",
+      sensitivity: "Unknown",
+      confidence: 0,
+      summary: note,
+      signals: []
+    }
+  };
+}
+
+async function hashFile(filePath: string) {
+  return new Promise<string>((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+
+    stream.on("data", (chunk) => {
+      hash.update(chunk);
+    });
+    stream.on("error", reject);
+    stream.on("end", () => {
+      resolve(hash.digest("hex"));
+    });
+  });
+}
+
+function sanitizeInspectablePaths(input: unknown) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const uniquePaths = new Set<string>();
+
+  for (const entry of input) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+
+    const trimmed = entry.trim();
+    if (!trimmed || !path.isAbsolute(trimmed)) {
+      continue;
+    }
+
+    if (!supportedDocumentExtensions.has(getExtension(trimmed))) {
+      continue;
+    }
+
+    uniquePaths.add(trimmed);
+
+    if (uniquePaths.size >= maxInspectionFiles) {
+      break;
+    }
+  }
+
+  return [...uniquePaths];
+}
+
 function countKeywordMatches(source: string, patterns: RegExp[]) {
   return patterns.reduce((total, pattern) => total + (pattern.test(source) ? 1 : 0), 0);
 }
@@ -242,10 +340,9 @@ function analyzeDocument(
 
 async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   const fileStats = await stat(filePath);
-  const extension = path.extname(filePath).replace(".", "").toUpperCase() || "FILE";
+  const extension = getExtension(filePath);
   const name = path.basename(filePath);
-  const fileBuffer = await readFile(filePath);
-  const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
+  const sha256 = await hashFile(filePath);
 
   const base: DocumentInspection = {
     name,
@@ -280,6 +377,22 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   if (extension !== "PDF") {
     return base;
   }
+
+  if (fileStats.size > maxPdfParseBytes) {
+    return {
+      ...base,
+      note: `PDF exceeds the local parse limit of ${formatBytes(maxPdfParseBytes)}. Metadata only was captured.`,
+      analysis: {
+        documentClass: "PDF over parse limit",
+        sensitivity: "Unknown",
+        confidence: 0,
+        summary: "The file is too large for safe local parsing in the current desktop flow.",
+        signals: ["File size exceeded local parse limit"]
+      }
+    };
+  }
+
+  const fileBuffer = await readFile(filePath);
 
   const parser = new PDFParse({ data: fileBuffer });
 
@@ -330,7 +443,18 @@ async function inspectDocuments(filePaths: string[]) {
   const results: DocumentInspection[] = [];
 
   for (const filePath of filePaths) {
-    results.push(await inspectDocument(filePath));
+    try {
+      const fileStats = await stat(filePath);
+      if (!fileStats.isFile()) {
+        results.push(buildErrorInspection(filePath, "Inspection failed: path is not a regular file."));
+        continue;
+      }
+
+      results.push(await inspectDocument(filePath));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown inspection failure";
+      results.push(buildErrorInspection(filePath, `Inspection failed: ${message}`));
+    }
   }
 
   return results;
@@ -388,7 +512,7 @@ ipcMain.handle("documents:pick", async () => {
     filters: [
       {
         name: "Supported documents",
-        extensions: ["pdf", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "tif", "tiff"]
+        extensions: [...supportedDocumentExtensions].map((extension) => extension.toLowerCase())
       }
     ]
   });
@@ -397,10 +521,33 @@ ipcMain.handle("documents:pick", async () => {
     return [];
   }
 
-  return inspectDocuments(result.filePaths);
+  return inspectDocuments(sanitizeInspectablePaths(result.filePaths));
 });
 
-ipcMain.handle("documents:inspect", async (_event, filePaths: string[]) => inspectDocuments(filePaths));
+ipcMain.handle("documents:inspect", async (_event, filePaths: unknown) => inspectDocuments(sanitizeInspectablePaths(filePaths)));
+
+ipcMain.handle("documents:reveal", async (_event, filePath: unknown) => {
+  if (typeof filePath !== "string") {
+    return false;
+  }
+
+  const trimmed = filePath.trim();
+  if (!trimmed || !path.isAbsolute(trimmed) || !supportedDocumentExtensions.has(getExtension(trimmed))) {
+    return false;
+  }
+
+  try {
+    const fileStats = await stat(trimmed);
+    if (!fileStats.isFile()) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  shell.showItemInFolder(trimmed);
+  return true;
+});
 
 ipcMain.handle("documents:export-report", async (_event, report: InspectionReport) => {
   const targetWindow = BrowserWindow.getFocusedWindow() ?? mainWindow;

@@ -130,7 +130,7 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [filterValue, setFilterValue] = useState("");
-  const [exportMessage, setExportMessage] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
 
   const normalizedFilter = filterValue.trim().toLowerCase();
   const duplicateFingerprintCounts = queue.reduce((counts, item) => {
@@ -160,7 +160,7 @@ export default function App() {
 
   async function handlePickDocuments() {
     setIsRunning(true);
-    setExportMessage("");
+    setStatusMessage("");
     const picked = await window.docent.pickDocuments();
     setIsRunning(false);
 
@@ -180,7 +180,7 @@ export default function App() {
     }
 
     setIsRunning(true);
-    setExportMessage("");
+    setStatusMessage("");
     const inspected = await window.docent.inspectDocuments(queue.map((item) => item.path));
     setQueue(inspected.map(toQueueItem));
     setIsRunning(false);
@@ -196,11 +196,41 @@ export default function App() {
     setIsExporting(false);
 
     if (!result.saved) {
-      setExportMessage("Export canceled.");
+      setStatusMessage("Export canceled.");
       return;
     }
 
-    setExportMessage(result.path ? `Inspection report saved to ${result.path}` : "Inspection report saved.");
+    setStatusMessage(result.path ? `Inspection report saved to ${result.path}` : "Inspection report saved.");
+  }
+
+  async function handleRevealSelected() {
+    if (!selectedDocument) {
+      return;
+    }
+
+    const revealed = await window.docent.revealDocument(selectedDocument.path);
+    setStatusMessage(revealed ? "Opened the selected file in Finder." : "Unable to reveal the selected file.");
+  }
+
+  function handleRemoveSelected() {
+    if (!selectedDocument) {
+      return;
+    }
+
+    const removedName = selectedDocument.name;
+    setQueue((current) => current.filter((item) => item.id !== selectedDocument.id));
+    setStatusMessage(`Removed ${removedName} from the staging queue.`);
+  }
+
+  function handleClearQueue() {
+    if (queue.length === 0) {
+      return;
+    }
+
+    setQueue([]);
+    setFilterValue("");
+    setSelectedDocumentId(null);
+    setStatusMessage("Cleared the staging queue.");
   }
 
   function openSource(url: string) {
@@ -343,6 +373,9 @@ export default function App() {
                   <button className="utility-button" disabled={queue.length === 0 || isExporting} onClick={handleExportReport} type="button">
                     {isExporting ? "Saving report" : "Export JSON report"}
                   </button>
+                  <button className="utility-button utility-button-danger" disabled={queue.length === 0} onClick={handleClearQueue} type="button">
+                    Clear queue
+                  </button>
                 </div>
               </div>
 
@@ -365,7 +398,7 @@ export default function App() {
                 </div>
               </div>
 
-              {exportMessage ? <p className="inline-note">{exportMessage}</p> : null}
+              {statusMessage ? <p className="inline-note">{statusMessage}</p> : null}
 
               <div className="table">
                 <div className="table-head">
@@ -421,6 +454,15 @@ export default function App() {
               <h3>{selectedDocument ? selectedDocument.name : "No document selected"}</h3>
               {selectedDocument ? (
                 <div className="stack">
+                  <div className="detail-actions">
+                    <button className="utility-button" onClick={handleRevealSelected} type="button">
+                      Reveal in Finder
+                    </button>
+                    <button className="utility-button utility-button-danger" onClick={handleRemoveSelected} type="button">
+                      Remove from queue
+                    </button>
+                  </div>
+
                   <div className="brief-row">
                     <strong>Status</strong>
                     <p>{selectedDocument.note}</p>
@@ -567,6 +609,7 @@ export default function App() {
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
                 <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
                 <li>The queue can search extracted content and flag duplicate fingerprints without any network call.</li>
+                <li>Inspection is limited to allowlisted file extensions, capped batch sizes, and guarded PDF parse size limits.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>
               </ul>
