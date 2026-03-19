@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld("docent", {
   pickDocuments: () => ipcRenderer.invoke("documents:pick"),
   inspectDocuments: (paths: string[]) => ipcRenderer.invoke("documents:inspect", paths),
   revealDocument: (path: string) => ipcRenderer.invoke("documents:reveal", path),
-  exportReport: (report: unknown) => ipcRenderer.invoke("documents:export-report", report)
+  exportReport: (report: unknown) => ipcRenderer.invoke("documents:export-report", report),
+  loadWorkspace: () => ipcRenderer.invoke("workspace:load"),
+  saveWorkspace: (state: unknown) => ipcRenderer.invoke("workspace:save", state)
 });

@@ -9,6 +9,7 @@ interface DocentMetadata {
 }
 
 type InspectionStatus = "Parsed locally" | "Metadata only" | "Error";
+type ReviewStatus = "Pending" | "Approved" | "Needs review" | "Rejected";
 
 interface PickedDocument {
   name: string;
@@ -38,6 +39,35 @@ interface PickedDocument {
     summary: string;
     signals: string[];
   };
+  extraction: {
+    template: string | null;
+    summary: string;
+    fields: Array<{
+      key: string;
+      label: string;
+      value: string;
+      confidence: number;
+      status: "Extracted" | "Detected label" | "Missing";
+    }>;
+  };
+}
+
+interface ReviewRecord {
+  status: ReviewStatus;
+  notes: string;
+  reviewedAt: string | null;
+}
+
+interface WorkspaceDocument extends PickedDocument {
+  id: string;
+  review: ReviewRecord;
+}
+
+interface WorkspaceState {
+  version: 1;
+  filterValue: string;
+  documents: WorkspaceDocument[];
+  savedAt: string;
 }
 
 interface InspectionReport {
@@ -52,9 +82,13 @@ interface InspectionReport {
     duplicates: number;
     totalPages: number;
     activeFilter: string | null;
+    pendingReview?: number;
+    approved?: number;
+    needsReview?: number;
+    rejected?: number;
   };
   documents: Array<
-    PickedDocument & {
+    WorkspaceDocument & {
       duplicate: boolean;
       duplicateCount: number;
     }
@@ -74,5 +108,7 @@ interface Window {
     inspectDocuments: (paths: string[]) => Promise<PickedDocument[]>;
     revealDocument: (path: string) => Promise<boolean>;
     exportReport: (report: InspectionReport) => Promise<ExportReportResult>;
+    loadWorkspace: () => Promise<WorkspaceState | null>;
+    saveWorkspace: (state: WorkspaceState) => Promise<boolean>;
   };
 }

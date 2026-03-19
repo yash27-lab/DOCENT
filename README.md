@@ -4,9 +4,10 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
-- Added stricter local inspection guardrails for file types, batch size, and oversized PDF handling
-- Added queue management actions to reveal local files, remove selected items, and clear the queue safely
-- Hardened the local inspection path so invalid or broken files fail individually instead of breaking the whole batch
+- Added local workspace persistence so staged documents, filters, review state, and notes survive restart
+- Added a review workflow with status tracking, notes, and exported review metadata
+- Added the first structured extraction workflow for W-9 detection and schema mapping
+- Added tests for the local document intelligence module and a `npm test` command
 
 ## Problem
 
@@ -30,6 +31,9 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 - Parse PDF files locally on-device
 - Show real page counts, document metadata, SHA-256 fingerprints, and extracted preview text
 - Infer likely document type and handling sensitivity from parsed text without leaving the device
+- Persist the local workspace, including review decisions and notes, in the app data directory
+- Track document review state across `Pending`, `Needs review`, `Approved`, and `Rejected`
+- Detect W-9 templates locally and surface a first structured extraction panel
 - Search the queue by filename, metadata, path, or extracted text
 - Flag duplicate documents locally through SHA-256 fingerprint matching
 - Export a local JSON inspection report for review or audit handoff
@@ -69,6 +73,12 @@ npm run dev
 ```bash
 npm run build
 npm start
+```
+
+## Test
+
+```bash
+npm test
 ```
 
 ## Test documents

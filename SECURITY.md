@@ -25,6 +25,8 @@ This repository currently ships a desktop Electron client only. There is no back
 - Inspection requests are constrained to allowlisted local file extensions and capped batch sizes.
 - Oversized PDFs fall back to metadata-only handling instead of unbounded local parsing.
 - Broken or inaccessible files fail per-document instead of aborting the full inspection batch.
+- Workspace state is persisted locally through the main process instead of exposing direct filesystem writes to the renderer.
+- Review notes and review status remain local to the device unless the user explicitly exports a report.
 
 Relevant code:
 
@@ -43,6 +45,7 @@ Relevant code:
 - No secrets or environment credentials are required for the current app
 - No OCR pipeline beyond basic PDF text extraction
 - No document filling or workflow execution engine
+- No encrypted-at-rest workspace storage yet
 
 ## Dependency note
 

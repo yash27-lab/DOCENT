@@ -464,6 +464,11 @@ button {
   font-weight: 600;
 }
 
+.table-review {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .table-flag {
   color: var(--warning);
   font-weight: 600;
@@ -502,6 +507,59 @@ button {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.review-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+}
+
+.review-card > span,
+.review-field span,
+.review-notes span,
+.extraction-template span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.review-field {
+  display: grid;
+}
+
+.review-select,
+.review-notes textarea {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #f7fafc;
+  color: var(--text);
+}
+
+.review-select {
+  padding: 12px 14px;
+}
+
+.review-notes {
+  display: grid;
+  margin-top: 14px;
+}
+
+.review-notes textarea {
+  min-height: 108px;
+  padding: 14px;
+  resize: vertical;
 }
 
 .brief-row,
@@ -594,6 +652,36 @@ button {
 .analysis-card > strong {
   display: block;
   line-height: 1.6;
+}
+
+.extraction-template {
+  margin-top: 14px;
+}
+
+.extraction-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.extraction-item {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #f7fafc;
+}
+
+.extraction-item strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.extraction-item p,
+.extraction-item small {
+  display: block;
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 .preview-card {
@@ -690,6 +778,10 @@ button {
   .analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .review-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 960px) {
@@ -724,6 +816,11 @@ button {
 
   .detail-actions {
     flex-direction: column;
+  }
+
+  .review-grid,
+  .analysis-grid {
+    grid-template-columns: 1fr;
   }
 
   .table-head {

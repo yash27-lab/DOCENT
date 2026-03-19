@@ -11,45 +11,21 @@ import {
 } from "./content";
 
 type View = "operations" | "workflow" | "security" | "market";
-type QueueStatus = "Parsed locally" | "Metadata only" | "Error";
+type QueueItem = WorkspaceDocument;
 
-type QueueItem = {
-  id: string;
-  name: string;
-  path: string;
-  extension: string;
-  pageCount: number | null;
-  previewText: string;
-  previewPages: number;
-  extractedCharacters: number;
-  fileSizeBytes: number;
-  modifiedAt: string;
-  sha256: string;
-  parser: string;
-  note: string;
-  metadata: PickedDocument["metadata"];
-  analysis: PickedDocument["analysis"];
-  status: QueueStatus;
-};
-
-function toQueueItem(document: PickedDocument): QueueItem {
+function createDefaultReviewRecord(): ReviewRecord {
   return {
+    status: "Pending",
+    notes: "",
+    reviewedAt: null
+  };
+}
+
+function toQueueItem(document: PickedDocument, existingReview?: ReviewRecord): QueueItem {
+  return {
+    ...document,
     id: document.path,
-    name: document.name,
-    path: document.path,
-    extension: document.extension || "FILE",
-    pageCount: document.pageCount,
-    previewText: document.previewText,
-    previewPages: document.previewPages,
-    extractedCharacters: document.extractedCharacters,
-    fileSizeBytes: document.fileSizeBytes,
-    modifiedAt: document.modifiedAt,
-    sha256: document.sha256,
-    parser: document.parser,
-    note: document.note,
-    metadata: document.metadata,
-    analysis: document.analysis,
-    status: document.status
+    review: existingReview ?? createDefaultReviewRecord()
   };
 }
 
@@ -65,7 +41,11 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function formatDate(value: string) {
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Not available";
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -90,10 +70,24 @@ function buildSearchText(item: QueueItem) {
     item.analysis.documentClass,
     item.analysis.sensitivity,
     item.analysis.summary,
-    item.analysis.signals.join(" ")
+    item.analysis.signals.join(" "),
+    item.extraction.template ?? "",
+    item.extraction.summary,
+    item.extraction.fields.map((field) => `${field.label} ${field.value} ${field.status}`).join(" "),
+    item.review.status,
+    item.review.notes
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function buildWorkspaceState(queue: QueueItem[], filterValue: string): WorkspaceState {
+  return {
+    version: 1,
+    filterValue,
+    documents: queue,
+    savedAt: new Date().toISOString()
+  };
 }
 
 function buildInspectionReport(
@@ -112,7 +106,11 @@ function buildInspectionReport(
       restricted: queue.filter((item) => item.analysis.sensitivity === "Restricted").length,
       duplicates: queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length,
       totalPages: queue.reduce((total, item) => total + (item.pageCount ?? 0), 0),
-      activeFilter: activeFilter.trim() || null
+      activeFilter: activeFilter.trim() || null,
+      pendingReview: queue.filter((item) => item.review.status === "Pending").length,
+      approved: queue.filter((item) => item.review.status === "Approved").length,
+      needsReview: queue.filter((item) => item.review.status === "Needs review").length,
+      rejected: queue.filter((item) => item.review.status === "Rejected").length
     },
     documents: queue.map((item) => ({
       ...item,
@@ -131,6 +129,7 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [filterValue, setFilterValue] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [workspaceReady, setWorkspaceReady] = useState(false);
 
   const normalizedFilter = filterValue.trim().toLowerCase();
   const duplicateFingerprintCounts = queue.reduce((counts, item) => {
@@ -140,11 +139,35 @@ export default function App() {
   const filteredQueue = queue.filter((item) => buildSearchText(item).includes(normalizedFilter));
 
   useEffect(() => {
+    let cancelled = false;
+
     void window.docent.getMetadata().then((result) => {
+      if (cancelled) {
+        return;
+      }
+
       setMeta(
         `${result.name} ${result.version}  •  Electron ${result.electron}  •  Chrome ${result.chrome}  •  ${result.platform}`
       );
     });
+
+    void window.docent.loadWorkspace().then((workspace) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (workspace?.documents.length) {
+        setQueue(workspace.documents);
+        setFilterValue(workspace.filterValue);
+        setStatusMessage(`Restored ${workspace.documents.length} document(s) from the local workspace.`);
+      }
+
+      setWorkspaceReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -158,6 +181,20 @@ export default function App() {
     );
   }, [queue, normalizedFilter]);
 
+  useEffect(() => {
+    if (!workspaceReady) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void window.docent.saveWorkspace(buildWorkspaceState(queue, filterValue));
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [queue, filterValue, workspaceReady]);
+
   async function handlePickDocuments() {
     setIsRunning(true);
     setStatusMessage("");
@@ -168,7 +205,8 @@ export default function App() {
       return;
     }
 
-    const staged = picked.map(toQueueItem);
+    const reviewByPath = new Map(queue.map((item) => [item.path, item.review]));
+    const staged = picked.map((document) => toQueueItem(document, reviewByPath.get(document.path)));
     setQueue((current) => [...staged, ...current]);
     setSelectedDocumentId(staged[0].id);
     setActiveView("operations");
@@ -181,8 +219,9 @@ export default function App() {
 
     setIsRunning(true);
     setStatusMessage("");
+    const reviewByPath = new Map(queue.map((item) => [item.path, item.review]));
     const inspected = await window.docent.inspectDocuments(queue.map((item) => item.path));
-    setQueue(inspected.map(toQueueItem));
+    setQueue(inspected.map((document) => toQueueItem(document, reviewByPath.get(document.path))));
     setIsRunning(false);
   }
 
@@ -233,6 +272,47 @@ export default function App() {
     setStatusMessage("Cleared the staging queue.");
   }
 
+  function handleReviewStatusChange(nextStatus: ReviewStatus) {
+    if (!selectedDocument) {
+      return;
+    }
+
+    setQueue((current) =>
+      current.map((item) =>
+        item.id === selectedDocument.id
+          ? {
+              ...item,
+              review: {
+                ...item.review,
+                status: nextStatus,
+                reviewedAt: nextStatus === "Pending" ? null : new Date().toISOString()
+              }
+            }
+          : item
+      )
+    );
+  }
+
+  function handleReviewNotesChange(notes: string) {
+    if (!selectedDocument) {
+      return;
+    }
+
+    setQueue((current) =>
+      current.map((item) =>
+        item.id === selectedDocument.id
+          ? {
+              ...item,
+              review: {
+                ...item.review,
+                notes
+              }
+            }
+          : item
+      )
+    );
+  }
+
   function openSource(url: string) {
     void window.docent.openExternal(url);
   }
@@ -244,6 +324,8 @@ export default function App() {
   const restrictedCount = queue.filter((item) => item.analysis.sensitivity === "Restricted").length;
   const totalPages = queue.reduce((total, item) => total + (item.pageCount ?? 0), 0);
   const duplicateCount = queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length;
+  const pendingReviewCount = queue.filter((item) => item.review.status === "Pending").length;
+  const approvedCount = queue.filter((item) => item.review.status === "Approved").length;
   const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
 
   return (
@@ -304,11 +386,10 @@ export default function App() {
         <section className="hero-grid">
           <article className="hero-card hero-card-primary">
             <div className="panel-label">Local Parsing</div>
-            <h3>PDF inspection and local classification now run on-device</h3>
+            <h3>Inspection, review, and workspace restore now run locally</h3>
             <p>
-              Selected PDF files are parsed locally in the Electron main process. The app extracts real page counts,
-              metadata, SHA-256 fingerprints, preview text, likely document type, and handling sensitivity without
-              sending files anywhere.
+              Selected PDFs are parsed locally in the Electron main process. DOCENT now restores the last workspace,
+              tracks review state and notes, and surfaces the first structured template workflow for W-9 documents.
             </p>
             <div className="hero-actions">
               <button className="link-button" onClick={handlePickDocuments} type="button">
@@ -347,7 +428,7 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <div className="panel-label">Staging Queue</div>
-                  <h3>Local document inspection and intelligence</h3>
+                  <h3>Local document inspection, review, and extraction</h3>
                 </div>
                 <div className={isRunning ? "status-pill status-pill-live" : "status-pill"}>
                   {isRunning ? "Inspecting locally" : issueCount > 0 ? `${issueCount} issue(s)` : "Ready"}
@@ -360,7 +441,7 @@ export default function App() {
                   <input
                     className="search-input"
                     onChange={(event) => setFilterValue(event.target.value)}
-                    placeholder="Filter by name, metadata, path, or extracted text"
+                    placeholder="Filter by name, review status, extraction, metadata, or text"
                     type="text"
                     value={filterValue}
                   />
@@ -389,12 +470,12 @@ export default function App() {
                   <strong>{restrictedCount}</strong>
                 </div>
                 <div className="summary-chip">
-                  <span>Duplicate fingerprints</span>
-                  <strong>{duplicateCount}</strong>
+                  <span>Pending review</span>
+                  <strong>{pendingReviewCount}</strong>
                 </div>
                 <div className="summary-chip">
-                  <span>Pages identified</span>
-                  <strong>{totalPages}</strong>
+                  <span>Approved</span>
+                  <strong>{approvedCount}</strong>
                 </div>
               </div>
 
@@ -413,7 +494,7 @@ export default function App() {
                     <strong>{queue.length === 0 ? "No staged documents" : "No matching documents"}</strong>
                     <p>
                       {queue.length === 0
-                        ? "Select documents to inspect them locally. PDFs will show real metadata and extracted preview text."
+                        ? "Select documents to inspect them locally. PDFs will show review controls and structured extraction where available."
                         : "Adjust the filter to see matching documents or export the full inspection report."}
                     </p>
                   </div>
@@ -436,6 +517,7 @@ export default function App() {
                           <small className="table-classification">
                             {item.analysis.documentClass}  •  {item.analysis.sensitivity}
                           </small>
+                          <small className="table-review">Review: {item.review.status}</small>
                           {duplicateFingerprintCount > 1 ? <small className="table-flag">Duplicate fingerprint in queue</small> : null}
                         </span>
                         <span>{item.pageCount ?? "n/a"}</span>
@@ -461,6 +543,37 @@ export default function App() {
                     <button className="utility-button utility-button-danger" onClick={handleRemoveSelected} type="button">
                       Remove from queue
                     </button>
+                  </div>
+
+                  <div className="review-card">
+                    <span>Review workflow</span>
+                    <div className="review-grid">
+                      <label className="review-field">
+                        <span>Status</span>
+                        <select
+                          className="review-select"
+                          onChange={(event) => handleReviewStatusChange(event.target.value as ReviewStatus)}
+                          value={selectedDocument.review.status}
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Needs review">Needs review</option>
+                          <option value="Approved">Approved</option>
+                          <option value="Rejected">Rejected</option>
+                        </select>
+                      </label>
+                      <div className="review-field">
+                        <span>Reviewed</span>
+                        <strong>{formatDate(selectedDocument.review.reviewedAt)}</strong>
+                      </div>
+                    </div>
+                    <label className="review-notes">
+                      <span>Operator notes</span>
+                      <textarea
+                        onChange={(event) => handleReviewNotesChange(event.target.value)}
+                        placeholder="Add review notes, handoff comments, or follow-up actions"
+                        value={selectedDocument.review.notes}
+                      />
+                    </label>
                   </div>
 
                   <div className="brief-row">
@@ -491,6 +604,28 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {selectedDocument.extraction.template || selectedDocument.extraction.fields.length > 0 ? (
+                    <div className="analysis-card">
+                      <span>Structured extraction</span>
+                      <strong>{selectedDocument.extraction.summary}</strong>
+                      <div className="extraction-template">
+                        <span>Template</span>
+                        <strong>{selectedDocument.extraction.template ?? "Detected schema"}</strong>
+                      </div>
+                      <div className="extraction-list">
+                        {selectedDocument.extraction.fields.map((field) => (
+                          <div className="extraction-item" key={field.key}>
+                            <strong>{field.label}</strong>
+                            <p>{field.value || field.status}</p>
+                            <small>
+                              {field.status}  •  {field.confidence}%
+                            </small>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="detail-grid">
                     <div className="detail-item">
@@ -545,8 +680,8 @@ export default function App() {
               ) : (
                 <p className="lead">
                   {queue.length === 0
-                    ? "Select documents to inspect them locally. PDFs will show extracted text and metadata here."
-                    : "Select a visible document from the filtered queue to inspect its metadata and preview."}
+                    ? "Select documents to inspect them locally. PDFs will show extracted text, review controls, and structured extraction details here."
+                    : "Select a visible document from the filtered queue to inspect its metadata, review state, and extraction detail."}
                 </p>
               )}
             </article>
@@ -608,7 +743,8 @@ export default function App() {
                 <li>Files are selected locally through Electron, not through browser upload controls.</li>
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
                 <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
-                <li>The queue can search extracted content and flag duplicate fingerprints without any network call.</li>
+                <li>Workspace state, review notes, and review decisions persist locally in the app data folder.</li>
+                <li>The first structured extraction workflow now targets W-9 detection and schema mapping.</li>
                 <li>Inspection is limited to allowlisted file extensions, capped batch sizes, and guarded PDF parse size limits.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>
