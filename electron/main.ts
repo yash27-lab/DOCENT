@@ -5,6 +5,16 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFParse } from "pdf-parse";
 import { buildDocumentIntelligence, type DocumentAnalysis, type DocumentMetadata, type StructuredExtraction } from "./document-intelligence";
+import {
+  createDefaultOcrResult,
+  isDirectImageOcrExtension,
+  ocrImageFile,
+  ocrPdfFirstPage,
+  sanitizeOcrResult,
+  shouldRunPdfOcr,
+  shutdownOcrWorker,
+  type OcrResult
+} from "./local-ocr";
 
 const rendererIndexPath = path.join(__dirname, "../../dist/index.html");
 
@@ -40,6 +50,7 @@ type DocumentInspection = {
   extractedCharacters: number;
   status: "Parsed locally" | "Metadata only" | "Error";
   note: string;
+  ocr: OcrResult;
   metadata: DocumentMetadata;
   analysis: DocumentAnalysis;
   extraction: StructuredExtraction;
@@ -59,12 +70,13 @@ type WorkspaceState = {
 
 type InspectionReport = {
   generatedAt: string;
-  summary: {
-    documentsSelected: number;
-    parsedLocally: number;
-    classified: number;
-    metadataOnly: number;
-    issues: number;
+      summary: {
+        documentsSelected: number;
+        parsedLocally: number;
+        ocrCompleted: number;
+        classified: number;
+        metadataOnly: number;
+        issues: number;
     restricted: number;
     duplicates: number;
     totalPages: number;
@@ -223,6 +235,10 @@ function getWorkspaceStatePath() {
   return path.join(app.getPath("userData"), "docent-workspace.json");
 }
 
+function getOcrStorageRoot() {
+  return path.join(app.getPath("userData"), "ocr");
+}
+
 function isSafeExternalUrl(rawUrl: string) {
   try {
     const parsed = new URL(rawUrl);
@@ -275,6 +291,7 @@ function buildErrorInspection(filePath: string, note: string): DocumentInspectio
     extractedCharacters: 0,
     status: "Error",
     note,
+    ocr: createDefaultOcrResult(),
     metadata: {
       title: "",
       author: "",
@@ -371,6 +388,7 @@ function sanitizeWorkspaceDocument(value: unknown): WorkspaceDocument | null {
         ? value.status
         : "Metadata only",
     note: asString(value.note, "", 1000),
+    ocr: sanitizeOcrResult(value.ocr),
     metadata: sanitizeMetadata(value.metadata),
     analysis: sanitizeAnalysis(value.analysis),
     extraction: sanitizeExtraction(value.extraction),
@@ -423,6 +441,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   const extension = getExtension(filePath);
   const name = path.basename(filePath);
   const sha256 = await hashFile(filePath);
+  const ocrStorageRoot = getOcrStorageRoot();
 
   const base: DocumentInspection = {
     name,
@@ -437,7 +456,8 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
     previewPages: 0,
     extractedCharacters: 0,
     status: "Metadata only",
-    note: "Local parsing is currently implemented for PDF files only.",
+    note: "Local parsing is currently implemented for PDF, PNG, and JPEG files.",
+    ocr: createDefaultOcrResult(),
     metadata: {
       title: "",
       author: "",
@@ -454,10 +474,57 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
     },
     extraction: {
       template: null,
-      summary: "Structured extraction is available only for locally parsed PDFs.",
+      summary: "Structured extraction is available only when local text inspection succeeds.",
       fields: []
     }
   };
+
+  if (isDirectImageOcrExtension(extension)) {
+    const ocr = await ocrImageFile(filePath, fileStats.size, ocrStorageRoot);
+    const intelligence = buildDocumentIntelligence(extension, ocr.textPreview, base.metadata);
+
+    if (ocr.status === "Completed") {
+      return {
+        ...base,
+        parser: ocr.engine ?? "tesseract.js",
+        pageCount: 1,
+        previewText: ocr.textPreview,
+        previewPages: 1,
+        extractedCharacters: ocr.extractedCharacters,
+        status: "Parsed locally",
+        note: ocr.note,
+        ocr,
+        analysis: intelligence.analysis,
+        extraction: intelligence.extraction
+      };
+    }
+
+    return {
+      ...base,
+      parser: ocr.engine ?? "tesseract.js",
+      note: ocr.note,
+      ocr,
+      status: ocr.status === "Failed" ? "Error" : "Metadata only",
+      analysis:
+        ocr.status === "Failed"
+          ? {
+              documentClass: "Image OCR failure",
+              sensitivity: "Unknown",
+              confidence: 0,
+              summary: ocr.note,
+              signals: []
+            }
+          : intelligence.analysis,
+      extraction: ocr.status === "Failed" ? base.extraction : intelligence.extraction
+    };
+  }
+
+  if (extension === "TIF" || extension === "TIFF") {
+    return {
+      ...base,
+      note: "TIFF intake is allowed, but the first OCR implementation currently runs only on PDF, PNG, and JPEG files."
+    };
+  }
 
   if (extension !== "PDF") {
     return base;
@@ -467,6 +534,12 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
     return {
       ...base,
       note: `PDF exceeds the local parse limit of ${formatBytes(maxPdfParseBytes)}. Metadata only was captured.`,
+      ocr: {
+        ...createDefaultOcrResult(),
+        status: "Skipped",
+        source: "PDF OCR fallback",
+        note: "OCR fallback was skipped because the PDF exceeded the safe local parse limit."
+      },
       analysis: {
         documentClass: "PDF over parse limit",
         sensitivity: "Unknown",
@@ -488,7 +561,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   try {
     const info = await parser.getInfo({ parsePageInfo: false });
     const result = await parser.getText({ first: Math.min(info.total, previewPages) });
-    const previewText = normalizeText(result.text).slice(0, previewCharacters);
+    const parsedPreviewText = normalizeText(result.text).slice(0, previewCharacters);
     const metadata: DocumentMetadata = {
       title: String(info.info?.Title ?? ""),
       author: String(info.info?.Author ?? ""),
@@ -496,29 +569,61 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
       producer: String(info.info?.Producer ?? ""),
       subject: String(info.info?.Subject ?? "")
     };
+    const ocr = shouldRunPdfOcr(parsedPreviewText)
+      ? await ocrPdfFirstPage(filePath, ocrStorageRoot)
+      : {
+          ...createDefaultOcrResult("OCR fallback not required. Extracted PDF text was strong enough for local analysis."),
+          status: "Skipped" as const,
+          source: "PDF OCR fallback"
+        };
+    const previewText = ocr.status === "Completed" && ocr.textPreview ? ocr.textPreview : parsedPreviewText;
     const intelligence = buildDocumentIntelligence(extension, previewText, metadata);
 
     return {
       ...base,
-      parser: "pdf-parse 2.4.5",
+      parser: ocr.status === "Completed" ? "pdf-parse 2.4.5 + tesseract.js 7.0.0" : "pdf-parse 2.4.5",
       pageCount: info.total,
       previewText,
-      previewPages: Math.min(info.total, previewPages),
-      extractedCharacters: result.text.length,
+      previewPages: ocr.status === "Completed" ? 1 : Math.min(info.total, previewPages),
+      extractedCharacters: ocr.status === "Completed" ? Math.max(result.text.length, ocr.extractedCharacters) : result.text.length,
       status: "Parsed locally",
-      note: `Parsed locally. Preview generated from the first ${Math.min(info.total, previewPages)} page(s).`,
+      note:
+        ocr.status === "Completed"
+          ? `Parsed locally. PDF text extraction was weak, so OCR fallback was run on page 1 of ${info.total}.`
+          : `Parsed locally. Preview generated from the first ${Math.min(info.total, previewPages)} page(s).`,
+      ocr,
       metadata,
       analysis: intelligence.analysis,
       extraction: intelligence.extraction
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown PDF parse error";
+    const ocr = await ocrPdfFirstPage(filePath, ocrStorageRoot);
+
+    if (ocr.status === "Completed" && ocr.textPreview) {
+      const intelligence = buildDocumentIntelligence(extension, ocr.textPreview, base.metadata);
+
+      return {
+        ...base,
+        parser: ocr.engine ?? "tesseract.js",
+        pageCount: ocr.totalPages,
+        previewText: ocr.textPreview,
+        previewPages: 1,
+        extractedCharacters: ocr.extractedCharacters,
+        status: "Parsed locally",
+        note: `Primary PDF text parsing failed, but OCR fallback recovered text from page 1. Original parser error: ${message}`,
+        ocr,
+        analysis: intelligence.analysis,
+        extraction: intelligence.extraction
+      };
+    }
 
     return {
       ...base,
-      parser: "pdf-parse 2.4.5",
+      parser: ocr.engine ? `pdf-parse 2.4.5 + ${ocr.engine}` : "pdf-parse 2.4.5",
       status: "Error",
-      note: `Local PDF parse failed: ${message}`,
+      note: `Local PDF parse failed: ${message}${ocr.note ? ` ${ocr.note}` : ""}`,
+      ocr,
       analysis: {
         documentClass: "PDF parse failure",
         sensitivity: "Unknown",
@@ -633,6 +738,10 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  void shutdownOcrWorker();
 });
 
 ipcMain.handle("app:get-metadata", () => ({

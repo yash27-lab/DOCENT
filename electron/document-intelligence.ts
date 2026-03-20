@@ -30,6 +30,8 @@ export type StructuredExtraction = {
   fields: ExtractionField[];
 };
 
+const ocrCapableExtensions = new Set(["PDF", "PNG", "JPG", "JPEG", "TIF", "TIFF"]);
+
 function countKeywordMatches(source: string, patterns: RegExp[]) {
   return patterns.reduce((total, pattern) => total + (pattern.test(source) ? 1 : 0), 0);
 }
@@ -89,6 +91,23 @@ function buildFallbackIntelligence(extension: string): { analysis: DocumentAnaly
       extraction: {
         template: null,
         summary: "No structured template was detected from the available text.",
+        fields: []
+      }
+    };
+  }
+
+  if (ocrCapableExtensions.has(extension)) {
+    return {
+      analysis: {
+        documentClass: "Unclassified scanned document",
+        sensitivity: "Unknown",
+        confidence: 18,
+        summary: "The file was inspected locally, but OCR did not recover enough text to classify it with confidence.",
+        signals: []
+      },
+      extraction: {
+        template: null,
+        summary: "No structured template was detected from the available OCR text.",
         fields: []
       }
     };
@@ -245,7 +264,7 @@ export function buildDocumentIntelligence(
   previewText: string,
   metadata: DocumentMetadata
 ): { analysis: DocumentAnalysis; extraction: StructuredExtraction } {
-  if (extension !== "PDF" || !previewText) {
+  if (!previewText || !ocrCapableExtensions.has(extension)) {
     return buildFallbackIntelligence(extension);
   }
 
@@ -278,7 +297,7 @@ export function buildDocumentIntelligence(
     }
   ];
 
-  let bestProfile = { label: "General PDF", score: 0 };
+  let bestProfile = { label: extension === "PDF" ? "General PDF" : "General document", score: 0 };
 
   for (const profile of profiles) {
     const score = countKeywordMatches(source, profile.patterns);

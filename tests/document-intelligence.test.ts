@@ -39,10 +39,32 @@ test("falls back safely for non-pdf documents", () => {
   assert.equal(result.extraction.template, null);
 });
 
+test("classifies OCR-backed image documents when usable text is present", () => {
+  const previewText = `
+    Form W-9
+    Request for Taxpayer Identification Number and Certification
+    Name (as shown on your income tax return)
+    Taxpayer Identification Number
+  `;
+
+  const result = buildDocumentIntelligence("PNG", previewText, emptyMetadata);
+
+  assert.equal(result.analysis.documentClass, "Tax form");
+  assert.equal(result.analysis.sensitivity, "Restricted");
+  assert.equal(result.extraction.template, "IRS W-9");
+});
+
 test("returns a conservative fallback when parsed pdf text is empty", () => {
   const result = buildDocumentIntelligence("PDF", "", emptyMetadata);
 
   assert.equal(result.analysis.documentClass, "Unclassified PDF");
   assert.equal(result.extraction.template, null);
   assert.match(result.extraction.summary, /no structured template/i);
+});
+
+test("returns a scanned-document fallback when OCR does not recover image text", () => {
+  const result = buildDocumentIntelligence("PNG", "", emptyMetadata);
+
+  assert.equal(result.analysis.documentClass, "Unclassified scanned document");
+  assert.equal(result.extraction.template, null);
 });

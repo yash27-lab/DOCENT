@@ -54,6 +54,18 @@ function formatDate(value: string | null) {
   return date.toLocaleString();
 }
 
+function formatDuration(value: number | null) {
+  if (value === null) {
+    return "Not available";
+  }
+
+  if (value < 1000) {
+    return `${value} ms`;
+  }
+
+  return `${(value / 1000).toFixed(2)} s`;
+}
+
 function buildSearchText(item: QueueItem) {
   return [
     item.name,
@@ -61,6 +73,11 @@ function buildSearchText(item: QueueItem) {
     item.path,
     item.parser,
     item.note,
+    item.ocr.status,
+    item.ocr.source ?? "",
+    item.ocr.engine ?? "",
+    item.ocr.note,
+    item.ocr.textPreview,
     item.previewText,
     item.metadata.title,
     item.metadata.author,
@@ -100,6 +117,7 @@ function buildInspectionReport(
     summary: {
       documentsSelected: queue.length,
       parsedLocally: queue.filter((item) => item.status === "Parsed locally").length,
+      ocrCompleted: queue.filter((item) => item.ocr.status === "Completed").length,
       classified: queue.filter((item) => item.analysis.confidence >= 60).length,
       metadataOnly: queue.filter((item) => item.status === "Metadata only").length,
       issues: queue.filter((item) => item.status === "Error").length,
@@ -324,6 +342,7 @@ export default function App() {
   const restrictedCount = queue.filter((item) => item.analysis.sensitivity === "Restricted").length;
   const totalPages = queue.reduce((total, item) => total + (item.pageCount ?? 0), 0);
   const duplicateCount = queue.filter((item) => (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1).length;
+  const ocrCompletedCount = queue.filter((item) => item.ocr.status === "Completed").length;
   const pendingReviewCount = queue.filter((item) => item.review.status === "Pending").length;
   const approvedCount = queue.filter((item) => item.review.status === "Approved").length;
   const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
@@ -386,10 +405,10 @@ export default function App() {
         <section className="hero-grid">
           <article className="hero-card hero-card-primary">
             <div className="panel-label">Local Parsing</div>
-            <h3>Inspection, review, and workspace restore now run locally</h3>
+            <h3>Local OCR now recovers text from scanned PDFs and image documents</h3>
             <p>
-              Selected PDFs are parsed locally in the Electron main process. DOCENT now restores the last workspace,
-              tracks review state and notes, and surfaces the first structured template workflow for W-9 documents.
+              DOCENT now runs bounded local OCR for weak-text PDFs plus PNG and JPEG files, while preserving local
+              workspace restore, review state, and structured W-9 extraction.
             </p>
             <div className="hero-actions">
               <button className="link-button" onClick={handlePickDocuments} type="button">
@@ -470,6 +489,10 @@ export default function App() {
                   <strong>{restrictedCount}</strong>
                 </div>
                 <div className="summary-chip">
+                  <span>OCR completed</span>
+                  <strong>{ocrCompletedCount}</strong>
+                </div>
+                <div className="summary-chip">
                   <span>Pending review</span>
                   <strong>{pendingReviewCount}</strong>
                 </div>
@@ -494,7 +517,7 @@ export default function App() {
                     <strong>{queue.length === 0 ? "No staged documents" : "No matching documents"}</strong>
                     <p>
                       {queue.length === 0
-                        ? "Select documents to inspect them locally. PDFs will show review controls and structured extraction where available."
+                        ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs can now surface review controls, OCR results, and structured extraction where available."
                         : "Adjust the filter to see matching documents or export the full inspection report."}
                     </p>
                   </div>
@@ -518,6 +541,12 @@ export default function App() {
                             {item.analysis.documentClass}  •  {item.analysis.sensitivity}
                           </small>
                           <small className="table-review">Review: {item.review.status}</small>
+                          {item.ocr.status !== "Not run" ? (
+                            <small className="table-ocr">
+                              OCR: {item.ocr.status}
+                              {item.ocr.confidence !== null ? `  •  ${item.ocr.confidence}%` : ""}
+                            </small>
+                          ) : null}
                           {duplicateFingerprintCount > 1 ? <small className="table-flag">Duplicate fingerprint in queue</small> : null}
                         </span>
                         <span>{item.pageCount ?? "n/a"}</span>
@@ -584,6 +613,41 @@ export default function App() {
                         This fingerprint appears in {selectedDuplicateCount} staged files. The queue can now flag local duplicates before any downstream handling.
                       </p>
                     ) : null}
+                  </div>
+
+                  <div className="analysis-card">
+                    <span>OCR trace</span>
+                    <strong>{selectedDocument.ocr.note}</strong>
+                    <div className="analysis-grid">
+                      <div className="detail-item">
+                        <span>OCR status</span>
+                        <strong>{selectedDocument.ocr.status}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>OCR source</span>
+                        <strong>{selectedDocument.ocr.source ?? "Not run"}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>OCR duration</span>
+                        <strong>{formatDuration(selectedDocument.ocr.durationMs)}</strong>
+                      </div>
+                    </div>
+                    <div className="analysis-grid">
+                      <div className="detail-item">
+                        <span>OCR engine</span>
+                        <strong>{selectedDocument.ocr.engine ?? "Not used"}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>OCR confidence</span>
+                        <strong>
+                          {selectedDocument.ocr.confidence !== null ? `${selectedDocument.ocr.confidence}%` : "Not available"}
+                        </strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>OCR characters</span>
+                        <strong>{selectedDocument.ocr.extractedCharacters || "0"}</strong>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="analysis-card">
@@ -676,11 +740,18 @@ export default function App() {
                     <span>Extracted preview</span>
                     <pre>{selectedDocument.previewText || "No local text preview available for this file type."}</pre>
                   </div>
+
+                  {selectedDocument.ocr.textPreview && selectedDocument.ocr.textPreview !== selectedDocument.previewText ? (
+                    <div className="preview-card">
+                      <span>OCR preview</span>
+                      <pre>{selectedDocument.ocr.textPreview}</pre>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <p className="lead">
                   {queue.length === 0
-                    ? "Select documents to inspect them locally. PDFs will show extracted text, review controls, and structured extraction details here."
+                    ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs will show extracted text, OCR trace detail, review controls, and structured extraction where available."
                     : "Select a visible document from the filtered queue to inspect its metadata, review state, and extraction detail."}
                 </p>
               )}
@@ -742,10 +813,12 @@ export default function App() {
               <ul className="list">
                 <li>Files are selected locally through Electron, not through browser upload controls.</li>
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
+                <li>Weak-text PDFs can trigger a first-page OCR fallback, and PNG or JPEG documents can run direct local OCR.</li>
                 <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
                 <li>Workspace state, review notes, and review decisions persist locally in the app data folder.</li>
                 <li>The first structured extraction workflow now targets W-9 detection and schema mapping.</li>
                 <li>Inspection is limited to allowlisted file extensions, capped batch sizes, and guarded PDF parse size limits.</li>
+                <li>OCR language data is cached locally after first use. Document contents are not uploaded for OCR processing.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>
               </ul>

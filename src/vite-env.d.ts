@@ -25,6 +25,16 @@ interface PickedDocument {
   extractedCharacters: number;
   status: InspectionStatus;
   note: string;
+  ocr: {
+    status: "Not run" | "Completed" | "Skipped" | "Failed";
+    source: string | null;
+    engine: string | null;
+    confidence: number | null;
+    durationMs: number | null;
+    extractedCharacters: number;
+    textPreview: string;
+    note: string;
+  };
   metadata: {
     title: string;
     author: string;
@@ -75,6 +85,7 @@ interface InspectionReport {
   summary: {
     documentsSelected: number;
     parsedLocally: number;
+    ocrCompleted: number;
     classified: number;
     metadataOnly: number;
     issues: number;

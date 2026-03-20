@@ -21,9 +21,11 @@ This repository currently ships a desktop Electron client only. There is no back
   - local file reveal for already-selected documents
 - The renderer uses a restrictive Content Security Policy and does not load remote scripts.
 - PDF files are parsed locally in the Electron main process with `pdf-parse`.
+- Weak-text PDFs can trigger bounded first-page OCR locally, and PNG or JPEG files can run direct local OCR in the main process.
 - The app computes local SHA-256 fingerprints and shows document metadata and text previews without sending files off-device.
 - Inspection requests are constrained to allowlisted local file extensions and capped batch sizes.
 - Oversized PDFs fall back to metadata-only handling instead of unbounded local parsing.
+- OCR language data is cached under the app data directory rather than the repository workspace.
 - Broken or inaccessible files fail per-document instead of aborting the full inspection batch.
 - Workspace state is persisted locally through the main process instead of exposing direct filesystem writes to the renderer.
 - Review notes and review status remain local to the device unless the user explicitly exports a report.
@@ -43,7 +45,7 @@ Relevant code:
 - No file upload service
 - No cloud storage
 - No secrets or environment credentials are required for the current app
-- No OCR pipeline beyond basic PDF text extraction
+- No multi-page OCR pipeline or scan normalization stack yet
 - No document filling or workflow execution engine
 - No encrypted-at-rest workspace storage yet
 

@@ -469,6 +469,11 @@ button {
   font-weight: 600;
 }
 
+.table-ocr {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .table-flag {
   color: var(--warning);
   font-weight: 600;
