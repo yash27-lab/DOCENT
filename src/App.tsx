@@ -405,10 +405,10 @@ export default function App() {
         <section className="hero-grid">
           <article className="hero-card hero-card-primary">
             <div className="panel-label">Local Parsing</div>
-            <h3>Local OCR now recovers text from scanned PDFs and image documents</h3>
+            <h3>Local OCR now recovers text from multi-page scanned PDFs and image documents</h3>
             <p>
-              DOCENT now runs bounded local OCR for weak-text PDFs plus PNG and JPEG files, while preserving local
-              workspace restore, review state, and structured W-9 extraction.
+              DOCENT now runs bounded multi-page OCR for weak-text PDFs plus scan cleanup for PNG and JPEG files,
+              while preserving local workspace restore, review state, and structured W-9 extraction.
             </p>
             <div className="hero-actions">
               <button className="link-button" onClick={handlePickDocuments} type="button">
@@ -517,7 +517,7 @@ export default function App() {
                     <strong>{queue.length === 0 ? "No staged documents" : "No matching documents"}</strong>
                     <p>
                       {queue.length === 0
-                        ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs can now surface review controls, OCR results, and structured extraction where available."
+                        ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs can now surface review controls, bounded OCR results, and structured extraction where available."
                         : "Adjust the filter to see matching documents or export the full inspection report."}
                     </p>
                   </div>
@@ -544,6 +544,7 @@ export default function App() {
                           {item.ocr.status !== "Not run" ? (
                             <small className="table-ocr">
                               OCR: {item.ocr.status}
+                              {item.ocr.pagesProcessed > 0 ? `  •  ${item.ocr.pagesProcessed} page(s)` : ""}
                               {item.ocr.confidence !== null ? `  •  ${item.ocr.confidence}%` : ""}
                             </small>
                           ) : null}
@@ -634,6 +635,14 @@ export default function App() {
                     </div>
                     <div className="analysis-grid">
                       <div className="detail-item">
+                        <span>OCR pages</span>
+                        <strong>
+                          {selectedDocument.ocr.pagesProcessed > 0
+                            ? `${selectedDocument.ocr.pagesProcessed}${selectedDocument.ocr.pageLimit ? ` / ${selectedDocument.ocr.pageLimit}` : ""}`
+                            : "Not used"}
+                        </strong>
+                      </div>
+                      <div className="detail-item">
                         <span>OCR engine</span>
                         <strong>{selectedDocument.ocr.engine ?? "Not used"}</strong>
                       </div>
@@ -643,9 +652,19 @@ export default function App() {
                           {selectedDocument.ocr.confidence !== null ? `${selectedDocument.ocr.confidence}%` : "Not available"}
                         </strong>
                       </div>
+                    </div>
+                    <div className="analysis-grid">
+                      <div className="detail-item">
+                        <span>Preprocessing</span>
+                        <strong>{selectedDocument.ocr.preprocessing}</strong>
+                      </div>
                       <div className="detail-item">
                         <span>OCR characters</span>
                         <strong>{selectedDocument.ocr.extractedCharacters || "0"}</strong>
+                      </div>
+                      <div className="detail-item">
+                        <span>Preview pages</span>
+                        <strong>{selectedDocument.previewPages || "0"}</strong>
                       </div>
                     </div>
                   </div>
@@ -751,7 +770,7 @@ export default function App() {
               ) : (
                 <p className="lead">
                   {queue.length === 0
-                    ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs will show extracted text, OCR trace detail, review controls, and structured extraction where available."
+                    ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs will show extracted text, multi-page OCR trace detail, review controls, and structured extraction where available."
                     : "Select a visible document from the filtered queue to inspect its metadata, review state, and extraction detail."}
                 </p>
               )}
@@ -813,12 +832,12 @@ export default function App() {
               <ul className="list">
                 <li>Files are selected locally through Electron, not through browser upload controls.</li>
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
-                <li>Weak-text PDFs can trigger a first-page OCR fallback, and PNG or JPEG documents can run direct local OCR.</li>
+                <li>Weak-text PDFs can trigger bounded multi-page OCR fallback, and PNG or JPEG documents can run direct local OCR.</li>
                 <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
                 <li>Workspace state, review notes, and review decisions persist locally in the app data folder.</li>
                 <li>The first structured extraction workflow now targets W-9 detection and schema mapping.</li>
                 <li>Inspection is limited to allowlisted file extensions, capped batch sizes, and guarded PDF parse size limits.</li>
-                <li>OCR language data is cached locally after first use. Document contents are not uploaded for OCR processing.</li>
+                <li>OCR language data is cached locally after first use, and scan cleanup is performed locally before OCR. Document contents are not uploaded for OCR processing.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>
                 <li>No backend, cloud upload, or external processing service is used in the current flow.</li>
               </ul>

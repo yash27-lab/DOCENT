@@ -31,6 +31,9 @@ interface PickedDocument {
     engine: string | null;
     confidence: number | null;
     durationMs: number | null;
+    pagesProcessed: number;
+    pageLimit: number | null;
+    preprocessing: "Scan cleanup" | "None";
     extractedCharacters: number;
     textPreview: string;
     note: string;

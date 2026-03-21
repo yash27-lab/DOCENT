@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shouldRunPdfOcr } from "../electron/local-ocr";
+import { getPdfOcrPageBudget, shouldRunPdfOcr } from "../electron/local-ocr";
 
 test("runs OCR fallback when extracted PDF text is effectively empty", () => {
   assert.equal(shouldRunPdfOcr(" \n \n "), true);
@@ -19,4 +19,10 @@ test("skips OCR fallback when extracted PDF text is already strong", () => {
   `;
 
   assert.equal(shouldRunPdfOcr(text), false);
+});
+
+test("caps PDF OCR to a bounded number of pages", () => {
+  assert.equal(getPdfOcrPageBudget(1), 1);
+  assert.equal(getPdfOcrPageBudget(2), 2);
+  assert.equal(getPdfOcrPageBudget(8), 3);
 });

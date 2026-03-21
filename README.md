@@ -4,9 +4,9 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
-- Added bounded local OCR for weak-text PDFs and direct PNG or JPEG document inspection
-- Added OCR trace details to the review UI, including status, duration, confidence, and recovered text
-- Added image-aware document intelligence so OCR-backed files can still be classified and routed through extraction
+- Added bounded multi-page OCR fallback for weak-text PDFs with a hard three-page cap
+- Added local scan cleanup before OCR to improve recognition on scanned PDFs and image documents
+- Added richer OCR trace details to the review UI, including processed pages, preprocessing mode, duration, confidence, and recovered text
 - Added OCR-safe cache handling so language data stays in the app-data directory instead of the repo
 - Added local workspace persistence so staged documents, filters, review state, and notes survive restart
 - Added a review workflow with status tracking, notes, and exported review metadata
@@ -33,10 +33,10 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 
 - Select documents through the native Electron file picker
 - Parse PDF files locally on-device
-- Run first-page OCR locally when PDF text extraction is weak
-- Run local OCR directly on PNG and JPEG files
+- Run bounded multi-page OCR locally when PDF text extraction is weak
+- Run local OCR directly on PNG and JPEG files with scan cleanup before recognition
 - Show real page counts, document metadata, SHA-256 fingerprints, and extracted preview text
-- Surface OCR status, source, confidence, runtime, and recovered text in the operator workspace
+- Surface OCR status, source, confidence, runtime, preprocessing mode, processed pages, and recovered text in the operator workspace
 - Infer likely document type and handling sensitivity from parsed text without leaving the device
 - Persist the local workspace, including review decisions and notes, in the app data directory
 - Track document review state across `Pending`, `Needs review`, `Approved`, and `Rejected`
@@ -51,7 +51,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 
 - No backend API
 - No cloud upload
-- No high-throughput OCR pipeline for large batches
+- No high-throughput OCR queue for large batches
 - No field mapping or document filling
 - No user accounts, auth, or storage layer
 
@@ -60,7 +60,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 The current repository is intentionally narrow. It proves the desktop intake and local inspection layer first. The most useful next steps are:
 
 - Add structured field extraction for common document classes
-- Expand OCR coverage to TIFF, multi-page scan sets, and better scan cleanup
+- Expand OCR coverage to TIFF, larger scan sets, and smarter per-document OCR scheduling
 - Expand the local classification heuristics into document-specific extraction workflows
 - Add side-by-side review and correction before export
 - Add templates for invoices, tax forms, onboarding packets, and internal forms
@@ -90,7 +90,7 @@ npm test
 
 ## OCR note
 
-OCR recognition runs locally. On first OCR use, the Tesseract English language data may be downloaded once and then cached in the app-data directory for reuse. Document contents are not uploaded for OCR processing.
+OCR recognition runs locally. On first OCR use, the Tesseract English language data may be downloaded once and then cached in the app-data directory for reuse. Weak-text PDFs are currently OCR'd with a hard cap of three pages, and image OCR applies local scan cleanup before recognition. Document contents are not uploaded for OCR processing.
 
 ## Test documents
 

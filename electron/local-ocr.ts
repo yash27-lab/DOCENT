@@ -10,6 +10,10 @@ const minPdfTextSignalCharacters = 120;
 const maxImageOcrBytes = 10 * 1024 * 1024;
 const maxImagePixels = 14_000_000;
 const pdfOcrTargetWidth = 1800;
+const maxPdfOcrPages = 3;
+const contrastFactor = 1.45;
+const lowThreshold = 92;
+const highThreshold = 188;
 const directImageOcrExtensions = new Set(["PNG", "JPG", "JPEG"]);
 
 type OcrWorker = Awaited<ReturnType<typeof createWorker>>;
@@ -22,6 +26,9 @@ export type OcrResult = {
   engine: string | null;
   confidence: number | null;
   durationMs: number | null;
+  pagesProcessed: number;
+  pageLimit: number | null;
+  preprocessing: "Scan cleanup" | "None";
   extractedCharacters: number;
   textPreview: string;
   note: string;
@@ -46,6 +53,42 @@ function getTextPreview(text: string) {
   return normalizeText(text).slice(0, ocrPreviewCharacters);
 }
 
+function clampColor(value: number) {
+  return Math.max(0, Math.min(255, value));
+}
+
+function applyScanCleanup(canvas: { width: number; height: number; getContext: (contextType: "2d") => any }) {
+  const context = canvas.getContext("2d");
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = imageData;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const grayscale = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = clampColor((grayscale - 128) * contrastFactor + 128);
+    const normalized = contrasted <= lowThreshold ? 0 : contrasted >= highThreshold ? 255 : contrasted;
+    data[index] = normalized;
+    data[index + 1] = normalized;
+    data[index + 2] = normalized;
+  }
+
+  context.putImageData(imageData, 0, 0);
+}
+
+function joinRecognizedPages(pages: Array<{ pageNumber: number; text: string }>) {
+  return pages
+    .map((page) => `Page ${page.pageNumber}\n${page.text}`)
+    .join("\n\n")
+    .trim();
+}
+
+function getAverageConfidence(confidences: number[]) {
+  if (confidences.length === 0) {
+    return null;
+  }
+
+  return Math.round(confidences.reduce((total, value) => total + value, 0) / confidences.length);
+}
+
 function buildOcrResult(result: Partial<OcrResult> = {}): OcrResult {
   return {
     status: result.status ?? "Not run",
@@ -53,6 +96,9 @@ function buildOcrResult(result: Partial<OcrResult> = {}): OcrResult {
     engine: result.engine ?? null,
     confidence: result.confidence ?? null,
     durationMs: result.durationMs ?? null,
+    pagesProcessed: result.pagesProcessed ?? 0,
+    pageLimit: result.pageLimit ?? null,
+    preprocessing: result.preprocessing ?? "None",
     extractedCharacters: result.extractedCharacters ?? 0,
     textPreview: result.textPreview ?? "",
     note: result.note ?? "OCR not run."
@@ -144,7 +190,13 @@ async function getWorker(storageRoot: string) {
   return workerPromise;
 }
 
-async function recognizeBuffer(buffer: Buffer, storageRoot: string, source: string, successNote: string) {
+async function recognizeBuffer(
+  buffer: Buffer,
+  storageRoot: string,
+  source: string,
+  successNote: string,
+  context: Partial<Pick<OcrResult, "pagesProcessed" | "pageLimit" | "preprocessing">> = {}
+) {
   const startedAt = Date.now();
 
   try {
@@ -162,6 +214,9 @@ async function recognizeBuffer(buffer: Buffer, storageRoot: string, source: stri
       engine: ocrEngineLabel,
       confidence,
       durationMs: Date.now() - startedAt,
+      pagesProcessed: context.pagesProcessed ?? 0,
+      pageLimit: context.pageLimit ?? null,
+      preprocessing: context.preprocessing ?? "None",
       extractedCharacters: text.length,
       textPreview: getTextPreview(text),
       note: text ? successNote : `${successNote} No usable text was recovered.`
@@ -174,6 +229,9 @@ async function recognizeBuffer(buffer: Buffer, storageRoot: string, source: stri
       source,
       engine: ocrEngineLabel,
       durationMs: Date.now() - startedAt,
+      pagesProcessed: context.pagesProcessed ?? 0,
+      pageLimit: context.pageLimit ?? null,
+      preprocessing: context.preprocessing ?? "None",
       note: `Local OCR failed: ${message}`
     });
   }
@@ -190,6 +248,7 @@ async function rasterizeImage(filePath: string) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   context.drawImage(image, 0, 0, width, height);
+  applyScanCleanup(canvas);
   return canvas.toBuffer("image/png");
 }
 
@@ -215,6 +274,9 @@ export function sanitizeOcrResult(value: unknown) {
     engine: typeof record.engine === "string" ? record.engine.slice(0, 120) : null,
     confidence: asNullableNumber(record.confidence),
     durationMs: asNullableNumber(record.durationMs),
+    pagesProcessed: typeof record.pagesProcessed === "number" && Number.isFinite(record.pagesProcessed) ? Math.max(0, record.pagesProcessed) : 0,
+    pageLimit: asNullableNumber(record.pageLimit),
+    preprocessing: record.preprocessing === "Scan cleanup" ? "Scan cleanup" : "None",
     extractedCharacters: typeof record.extractedCharacters === "number" && Number.isFinite(record.extractedCharacters) ? Math.max(0, record.extractedCharacters) : 0,
     textPreview: typeof record.textPreview === "string" ? record.textPreview.slice(0, ocrPreviewCharacters) : "",
     note: typeof record.note === "string" ? record.note.slice(0, 1000) : "OCR not run."
@@ -229,58 +291,124 @@ export function shouldRunPdfOcr(previewText: string) {
   return countSignalCharacters(previewText) < minPdfTextSignalCharacters;
 }
 
+export function getPdfOcrPageBudget(totalPages: number) {
+  return Math.max(1, Math.min(Math.max(1, totalPages), maxPdfOcrPages));
+}
+
 export async function ocrImageFile(filePath: string, fileSizeBytes: number, storageRoot: string) {
   if (fileSizeBytes > maxImageOcrBytes) {
     return buildOcrResult({
       status: "Skipped",
       source: "Image OCR",
       engine: ocrEngineLabel,
+      pageLimit: 1,
+      preprocessing: "Scan cleanup",
       note: `Local OCR skipped because the image exceeds the ${Math.round(maxImageOcrBytes / (1024 * 1024))} MB image limit.`
     });
   }
 
   try {
     const buffer = await rasterizeImage(filePath);
-    return recognizeBuffer(buffer, storageRoot, "Image OCR", "Image OCR completed locally.");
+    return recognizeBuffer(buffer, storageRoot, "Image OCR", "Image OCR completed locally after scan cleanup.", {
+      pagesProcessed: 1,
+      pageLimit: 1,
+      preprocessing: "Scan cleanup"
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown image decode failure";
     return buildOcrResult({
       status: "Failed",
       source: "Image OCR",
       engine: ocrEngineLabel,
+      pageLimit: 1,
+      preprocessing: "Scan cleanup",
       note: `Image OCR failed before recognition: ${message}`
     });
   }
 }
 
-export async function ocrPdfFirstPage(filePath: string, storageRoot: string): Promise<PdfOcrResult> {
+export async function ocrPdfPages(filePath: string, storageRoot: string): Promise<PdfOcrResult> {
   let document: { numPages: number; getPage: (page: number) => Promise<any>; cleanup: () => void; destroy: () => Promise<void> } | null = null;
+  const startedAt = Date.now();
 
   try {
     const pdfjs = await importPdfJs();
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await readFile(filePath)) });
     document = await loadingTask.promise;
+    const pageBudget = getPdfOcrPageBudget(document.numPages);
+    const recognizedPages: Array<{ pageNumber: number; text: string }> = [];
+    const confidences: number[] = [];
+    let completedPages = 0;
 
-    const page = await document.getPage(1);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const scale = Math.max(1.8, pdfOcrTargetWidth / Math.max(baseViewport.width, 1));
-    const viewport = page.getViewport({ scale });
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const context = canvas.getContext("2d");
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: context as never, viewport }).promise;
-    page.cleanup();
+    for (let pageNumber = 1; pageNumber <= pageBudget; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
 
-    const recognized = await recognizeBuffer(
-      canvas.toBuffer("image/png"),
-      storageRoot,
-      "PDF OCR fallback",
-      `OCR fallback completed locally on page 1 of ${document.numPages}.`
-    );
+      try {
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = Math.max(1.8, pdfOcrTargetWidth / Math.max(baseViewport.width, 1));
+        const viewport = page.getViewport({ scale });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: context as never, viewport }).promise;
+        applyScanCleanup(canvas);
+
+        const recognized = await recognizeBuffer(
+          canvas.toBuffer("image/png"),
+          storageRoot,
+          "PDF OCR fallback",
+          `OCR fallback completed locally on ${pageBudget} page(s) out of ${document.numPages}.`,
+          {
+            pagesProcessed: pageNumber,
+            pageLimit: pageBudget,
+            preprocessing: "Scan cleanup"
+          }
+        );
+
+        if (recognized.status !== "Completed") {
+          if (recognizedPages.length === 0) {
+            return buildPdfOcrResult({
+              ...recognized,
+              totalPages: document.numPages,
+              pagesProcessed: completedPages,
+              pageLimit: pageBudget,
+              preprocessing: "Scan cleanup",
+              durationMs: Date.now() - startedAt
+            });
+          }
+
+          break;
+        }
+
+        completedPages += 1;
+
+        if (recognized.textPreview) {
+          recognizedPages.push({ pageNumber, text: recognized.textPreview });
+        }
+
+        if (recognized.confidence !== null) {
+          confidences.push(recognized.confidence);
+        }
+      } finally {
+        page.cleanup();
+      }
+    }
+
+    const combinedText = joinRecognizedPages(recognizedPages);
 
     return buildPdfOcrResult({
-      ...recognized,
+      status: "Completed",
+      source: "PDF OCR fallback",
+      engine: ocrEngineLabel,
+      confidence: getAverageConfidence(confidences),
+      durationMs: Date.now() - startedAt,
+      pagesProcessed: completedPages,
+      pageLimit: pageBudget,
+      preprocessing: "Scan cleanup",
+      extractedCharacters: combinedText.length,
+      textPreview: getTextPreview(combinedText),
+      note: `OCR fallback completed locally on ${completedPages} page(s) out of ${document.numPages}. Scan cleanup was applied before recognition.`,
       totalPages: document.numPages
     });
   } catch (error) {
@@ -289,6 +417,9 @@ export async function ocrPdfFirstPage(filePath: string, storageRoot: string): Pr
       status: "Failed",
       source: "PDF OCR fallback",
       engine: ocrEngineLabel,
+      durationMs: Date.now() - startedAt,
+      pageLimit: document ? getPdfOcrPageBudget(document.numPages) : maxPdfOcrPages,
+      preprocessing: "Scan cleanup",
       note: `PDF OCR fallback failed: ${message}`,
       totalPages: document?.numPages ?? null
     });

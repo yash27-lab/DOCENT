@@ -9,7 +9,7 @@ import {
   createDefaultOcrResult,
   isDirectImageOcrExtension,
   ocrImageFile,
-  ocrPdfFirstPage,
+  ocrPdfPages,
   sanitizeOcrResult,
   shouldRunPdfOcr,
   shutdownOcrWorker,
@@ -570,7 +570,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
       subject: String(info.info?.Subject ?? "")
     };
     const ocr = shouldRunPdfOcr(parsedPreviewText)
-      ? await ocrPdfFirstPage(filePath, ocrStorageRoot)
+      ? await ocrPdfPages(filePath, ocrStorageRoot)
       : {
           ...createDefaultOcrResult("OCR fallback not required. Extracted PDF text was strong enough for local analysis."),
           status: "Skipped" as const,
@@ -584,12 +584,12 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
       parser: ocr.status === "Completed" ? "pdf-parse 2.4.5 + tesseract.js 7.0.0" : "pdf-parse 2.4.5",
       pageCount: info.total,
       previewText,
-      previewPages: ocr.status === "Completed" ? 1 : Math.min(info.total, previewPages),
+      previewPages: ocr.status === "Completed" ? Math.max(1, ocr.pagesProcessed) : Math.min(info.total, previewPages),
       extractedCharacters: ocr.status === "Completed" ? Math.max(result.text.length, ocr.extractedCharacters) : result.text.length,
       status: "Parsed locally",
       note:
         ocr.status === "Completed"
-          ? `Parsed locally. PDF text extraction was weak, so OCR fallback was run on page 1 of ${info.total}.`
+          ? `Parsed locally. PDF text extraction was weak, so OCR fallback was run on ${ocr.pagesProcessed} page(s) out of ${info.total}.`
           : `Parsed locally. Preview generated from the first ${Math.min(info.total, previewPages)} page(s).`,
       ocr,
       metadata,
@@ -598,7 +598,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown PDF parse error";
-    const ocr = await ocrPdfFirstPage(filePath, ocrStorageRoot);
+    const ocr = await ocrPdfPages(filePath, ocrStorageRoot);
 
     if (ocr.status === "Completed" && ocr.textPreview) {
       const intelligence = buildDocumentIntelligence(extension, ocr.textPreview, base.metadata);
@@ -608,10 +608,10 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
         parser: ocr.engine ?? "tesseract.js",
         pageCount: ocr.totalPages,
         previewText: ocr.textPreview,
-        previewPages: 1,
+        previewPages: Math.max(1, ocr.pagesProcessed),
         extractedCharacters: ocr.extractedCharacters,
         status: "Parsed locally",
-        note: `Primary PDF text parsing failed, but OCR fallback recovered text from page 1. Original parser error: ${message}`,
+        note: `Primary PDF text parsing failed, but OCR fallback recovered text from ${ocr.pagesProcessed} page(s). Original parser error: ${message}`,
         ocr,
         analysis: intelligence.analysis,
         extraction: intelligence.extraction
