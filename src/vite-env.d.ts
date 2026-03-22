@@ -114,12 +114,23 @@ interface ExportReportResult {
   path?: string;
 }
 
+interface InspectionProgress {
+  stage: "Inspecting file" | "Running OCR" | "Completed";
+  currentFileIndex: number;
+  totalFiles: number;
+  fileName: string;
+  detail: string;
+  ocrPage: number | null;
+  ocrPageLimit: number | null;
+}
+
 interface Window {
   docent: {
     getMetadata: () => Promise<DocentMetadata>;
     openExternal: (url: string) => Promise<boolean>;
     pickDocuments: () => Promise<PickedDocument[]>;
     inspectDocuments: (paths: string[]) => Promise<PickedDocument[]>;
+    onInspectionProgress: (callback: (progress: InspectionProgress) => void) => () => void;
     revealDocument: (path: string) => Promise<boolean>;
     exportReport: (report: InspectionReport) => Promise<ExportReportResult>;
     loadWorkspace: () => Promise<WorkspaceState | null>;

@@ -38,6 +38,12 @@ export type PdfOcrResult = OcrResult & {
   totalPages: number | null;
 };
 
+export type OcrProgressUpdate = {
+  detail: string;
+  ocrPage: number | null;
+  ocrPageLimit: number | null;
+};
+
 let workerPromise: Promise<OcrWorker> | null = null;
 let workerStorageRoot: string | null = null;
 
@@ -195,11 +201,18 @@ async function recognizeBuffer(
   storageRoot: string,
   source: string,
   successNote: string,
-  context: Partial<Pick<OcrResult, "pagesProcessed" | "pageLimit" | "preprocessing">> = {}
+  context: Partial<Pick<OcrResult, "pagesProcessed" | "pageLimit" | "preprocessing">> = {},
+  onProgress?: (progress: OcrProgressUpdate) => void
 ) {
   const startedAt = Date.now();
 
   try {
+    onProgress?.({
+      detail: source === "Image OCR" ? "Running OCR on the selected image." : "Recognizing text from the current OCR page.",
+      ocrPage: context.pagesProcessed ?? null,
+      ocrPageLimit: context.pageLimit ?? null
+    });
+
     const worker = await getWorker(storageRoot);
     const result = await worker.recognize(buffer);
     const text = normalizeText(result.data.text);
@@ -295,7 +308,12 @@ export function getPdfOcrPageBudget(totalPages: number) {
   return Math.max(1, Math.min(Math.max(1, totalPages), maxPdfOcrPages));
 }
 
-export async function ocrImageFile(filePath: string, fileSizeBytes: number, storageRoot: string) {
+export async function ocrImageFile(
+  filePath: string,
+  fileSizeBytes: number,
+  storageRoot: string,
+  onProgress?: (progress: OcrProgressUpdate) => void
+) {
   if (fileSizeBytes > maxImageOcrBytes) {
     return buildOcrResult({
       status: "Skipped",
@@ -308,12 +326,25 @@ export async function ocrImageFile(filePath: string, fileSizeBytes: number, stor
   }
 
   try {
-    const buffer = await rasterizeImage(filePath);
-    return recognizeBuffer(buffer, storageRoot, "Image OCR", "Image OCR completed locally after scan cleanup.", {
-      pagesProcessed: 1,
-      pageLimit: 1,
-      preprocessing: "Scan cleanup"
+    onProgress?.({
+      detail: "Preparing image OCR with local scan cleanup.",
+      ocrPage: 1,
+      ocrPageLimit: 1
     });
+
+    const buffer = await rasterizeImage(filePath);
+    return recognizeBuffer(
+      buffer,
+      storageRoot,
+      "Image OCR",
+      "Image OCR completed locally after scan cleanup.",
+      {
+        pagesProcessed: 1,
+        pageLimit: 1,
+        preprocessing: "Scan cleanup"
+      },
+      onProgress
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown image decode failure";
     return buildOcrResult({
@@ -327,7 +358,11 @@ export async function ocrImageFile(filePath: string, fileSizeBytes: number, stor
   }
 }
 
-export async function ocrPdfPages(filePath: string, storageRoot: string): Promise<PdfOcrResult> {
+export async function ocrPdfPages(
+  filePath: string,
+  storageRoot: string,
+  onProgress?: (progress: OcrProgressUpdate) => void
+): Promise<PdfOcrResult> {
   let document: { numPages: number; getPage: (page: number) => Promise<any>; cleanup: () => void; destroy: () => Promise<void> } | null = null;
   const startedAt = Date.now();
 
@@ -344,6 +379,12 @@ export async function ocrPdfPages(filePath: string, storageRoot: string): Promis
       const page = await document.getPage(pageNumber);
 
       try {
+        onProgress?.({
+          detail: `Preparing OCR for page ${pageNumber} of ${pageBudget}.`,
+          ocrPage: pageNumber,
+          ocrPageLimit: pageBudget
+        });
+
         const baseViewport = page.getViewport({ scale: 1 });
         const scale = Math.max(1.8, pdfOcrTargetWidth / Math.max(baseViewport.width, 1));
         const viewport = page.getViewport({ scale });
@@ -363,7 +404,8 @@ export async function ocrPdfPages(filePath: string, storageRoot: string): Promis
             pagesProcessed: pageNumber,
             pageLimit: pageBudget,
             preprocessing: "Scan cleanup"
-          }
+          },
+          onProgress
         );
 
         if (recognized.status !== "Completed") {

@@ -4,6 +4,7 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
+- Added live inspection progress in the desktop UI, including current file and OCR page progress
 - Added bounded multi-page OCR fallback for weak-text PDFs with a hard three-page cap
 - Added local scan cleanup before OCR to improve recognition on scanned PDFs and image documents
 - Added richer OCR trace details to the review UI, including processed pages, preprocessing mode, duration, confidence, and recovered text
@@ -35,6 +36,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 - Parse PDF files locally on-device
 - Run bounded multi-page OCR locally when PDF text extraction is weak
 - Run local OCR directly on PNG and JPEG files with scan cleanup before recognition
+- Show live inspection progress while DOCENT parses files and steps through OCR pages
 - Show real page counts, document metadata, SHA-256 fingerprints, and extracted preview text
 - Surface OCR status, source, confidence, runtime, preprocessing mode, processed pages, and recovered text in the operator workspace
 - Infer likely document type and handling sensitivity from parsed text without leaving the device

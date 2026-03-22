@@ -13,6 +13,7 @@ import {
   sanitizeOcrResult,
   shouldRunPdfOcr,
   shutdownOcrWorker,
+  type OcrProgressUpdate,
   type OcrResult
 } from "./local-ocr";
 
@@ -66,6 +67,16 @@ type WorkspaceState = {
   filterValue: string;
   documents: WorkspaceDocument[];
   savedAt: string;
+};
+
+type InspectionProgress = {
+  stage: "Inspecting file" | "Running OCR" | "Completed";
+  currentFileIndex: number;
+  totalFiles: number;
+  fileName: string;
+  detail: string;
+  ocrPage: number | null;
+  ocrPageLimit: number | null;
 };
 
 type InspectionReport = {
@@ -237,6 +248,10 @@ function getWorkspaceStatePath() {
 
 function getOcrStorageRoot() {
   return path.join(app.getPath("userData"), "ocr");
+}
+
+function sendInspectionProgress(progress: InspectionProgress) {
+  mainWindow?.webContents.send("inspection:progress", progress);
 }
 
 function isSafeExternalUrl(rawUrl: string) {
@@ -436,12 +451,33 @@ async function writeWorkspaceState(state: WorkspaceState) {
   await writeFile(workspaceStatePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
-async function inspectDocument(filePath: string): Promise<DocumentInspection> {
+async function inspectDocument(filePath: string, currentFileIndex: number, totalFiles: number): Promise<DocumentInspection> {
   const fileStats = await stat(filePath);
   const extension = getExtension(filePath);
   const name = path.basename(filePath);
   const sha256 = await hashFile(filePath);
   const ocrStorageRoot = getOcrStorageRoot();
+  const emitOcrProgress = (progress: OcrProgressUpdate) => {
+    sendInspectionProgress({
+      stage: "Running OCR",
+      currentFileIndex,
+      totalFiles,
+      fileName: name,
+      detail: progress.detail,
+      ocrPage: progress.ocrPage,
+      ocrPageLimit: progress.ocrPageLimit
+    });
+  };
+
+  sendInspectionProgress({
+    stage: "Inspecting file",
+    currentFileIndex,
+    totalFiles,
+    fileName: name,
+    detail: "Inspecting document locally.",
+    ocrPage: null,
+    ocrPageLimit: null
+  });
 
   const base: DocumentInspection = {
     name,
@@ -480,7 +516,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   };
 
   if (isDirectImageOcrExtension(extension)) {
-    const ocr = await ocrImageFile(filePath, fileStats.size, ocrStorageRoot);
+    const ocr = await ocrImageFile(filePath, fileStats.size, ocrStorageRoot, emitOcrProgress);
     const intelligence = buildDocumentIntelligence(extension, ocr.textPreview, base.metadata);
 
     if (ocr.status === "Completed") {
@@ -570,7 +606,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
       subject: String(info.info?.Subject ?? "")
     };
     const ocr = shouldRunPdfOcr(parsedPreviewText)
-      ? await ocrPdfPages(filePath, ocrStorageRoot)
+      ? await ocrPdfPages(filePath, ocrStorageRoot, emitOcrProgress)
       : {
           ...createDefaultOcrResult("OCR fallback not required. Extracted PDF text was strong enough for local analysis."),
           status: "Skipped" as const,
@@ -598,7 +634,7 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown PDF parse error";
-    const ocr = await ocrPdfPages(filePath, ocrStorageRoot);
+    const ocr = await ocrPdfPages(filePath, ocrStorageRoot, emitOcrProgress);
 
     if (ocr.status === "Completed" && ocr.textPreview) {
       const intelligence = buildDocumentIntelligence(extension, ocr.textPreview, base.metadata);
@@ -644,8 +680,9 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
 
 async function inspectDocuments(filePaths: string[]) {
   const results: DocumentInspection[] = [];
+  const totalFiles = filePaths.length;
 
-  for (const filePath of filePaths) {
+  for (const [index, filePath] of filePaths.entries()) {
     try {
       const fileStats = await stat(filePath);
       if (!fileStats.isFile()) {
@@ -653,11 +690,23 @@ async function inspectDocuments(filePaths: string[]) {
         continue;
       }
 
-      results.push(await inspectDocument(filePath));
+      results.push(await inspectDocument(filePath, index + 1, totalFiles));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown inspection failure";
       results.push(buildErrorInspection(filePath, `Inspection failed: ${message}`));
     }
+  }
+
+  if (totalFiles > 0) {
+    sendInspectionProgress({
+      stage: "Completed",
+      currentFileIndex: totalFiles,
+      totalFiles,
+      fileName: path.basename(filePaths[totalFiles - 1]),
+      detail: `Inspection completed for ${totalFiles} document(s).`,
+      ocrPage: null,
+      ocrPageLimit: null
+    });
   }
 
   return results;

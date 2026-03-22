@@ -138,6 +138,18 @@ function buildInspectionReport(
   };
 }
 
+function formatInspectionProgress(progress: InspectionProgress | null) {
+  if (!progress) {
+    return "";
+  }
+
+  const fileSegment = `File ${progress.currentFileIndex} of ${progress.totalFiles}`;
+  const pageSegment =
+    progress.ocrPage !== null && progress.ocrPageLimit !== null ? `  •  OCR page ${progress.ocrPage} of ${progress.ocrPageLimit}` : "";
+
+  return `${fileSegment}${pageSegment}`;
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<View>("operations");
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue.map((item) => item as QueueItem));
@@ -148,6 +160,7 @@ export default function App() {
   const [filterValue, setFilterValue] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [inspectionProgress, setInspectionProgress] = useState<InspectionProgress | null>(null);
 
   const normalizedFilter = filterValue.trim().toLowerCase();
   const duplicateFingerprintCounts = queue.reduce((counts, item) => {
@@ -189,6 +202,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unsubscribe = window.docent.onInspectionProgress((progress) => {
+      setInspectionProgress(progress);
+
+      if (progress.stage === "Completed") {
+        setStatusMessage(progress.detail);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     if (filteredQueue.length === 0) {
       setSelectedDocumentId(null);
       return;
@@ -216,6 +243,7 @@ export default function App() {
   async function handlePickDocuments() {
     setIsRunning(true);
     setStatusMessage("");
+    setInspectionProgress(null);
     const picked = await window.docent.pickDocuments();
     setIsRunning(false);
 
@@ -237,6 +265,7 @@ export default function App() {
 
     setIsRunning(true);
     setStatusMessage("");
+    setInspectionProgress(null);
     const reviewByPath = new Map(queue.map((item) => [item.path, item.review]));
     const inspected = await window.docent.inspectDocuments(queue.map((item) => item.path));
     setQueue(inspected.map((document) => toQueueItem(document, reviewByPath.get(document.path))));
@@ -346,6 +375,7 @@ export default function App() {
   const pendingReviewCount = queue.filter((item) => item.review.status === "Pending").length;
   const approvedCount = queue.filter((item) => item.review.status === "Approved").length;
   const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
+  const inspectionProgressLabel = formatInspectionProgress(inspectionProgress);
 
   return (
     <div className="shell">
@@ -450,7 +480,11 @@ export default function App() {
                   <h3>Local document inspection, review, and extraction</h3>
                 </div>
                 <div className={isRunning ? "status-pill status-pill-live" : "status-pill"}>
-                  {isRunning ? "Inspecting locally" : issueCount > 0 ? `${issueCount} issue(s)` : "Ready"}
+                  {isRunning
+                    ? inspectionProgressLabel || "Inspecting locally"
+                    : issueCount > 0
+                      ? `${issueCount} issue(s)`
+                      : "Ready"}
                 </div>
               </div>
 
@@ -501,6 +535,14 @@ export default function App() {
                   <strong>{approvedCount}</strong>
                 </div>
               </div>
+
+              {isRunning && inspectionProgress ? (
+                <div className="progress-card">
+                  <strong>{inspectionProgress.fileName}</strong>
+                  <p>{inspectionProgress.detail}</p>
+                  <small>{inspectionProgressLabel}</small>
+                </div>
+              ) : null}
 
               {statusMessage ? <p className="inline-note">{statusMessage}</p> : null}
 

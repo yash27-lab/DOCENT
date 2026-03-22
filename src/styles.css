@@ -336,6 +336,26 @@ button {
   line-height: 1.6;
 }
 
+.progress-card {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(29, 106, 79, 0.16);
+  background: rgba(29, 106, 79, 0.08);
+}
+
+.progress-card strong,
+.progress-card p,
+.progress-card small {
+  display: block;
+}
+
+.progress-card p,
+.progress-card small {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
