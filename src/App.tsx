@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import {
   analystNotes,
   betterProductMoves,
@@ -12,6 +12,7 @@ import {
 
 type View = "operations" | "workflow" | "security" | "market";
 type QueueItem = WorkspaceDocument;
+type DroppedFile = File & { path?: string };
 
 function createDefaultReviewRecord(): ReviewRecord {
   return {
@@ -98,6 +99,86 @@ function buildSearchText(item: QueueItem) {
     .toLowerCase();
 }
 
+function mergeInspectedDocuments(currentQueue: QueueItem[], documents: PickedDocument[]) {
+  const reviewByPath = new Map(currentQueue.map((item) => [item.path, item.review]));
+  const incomingPaths = new Set(documents.map((document) => document.path));
+  const staged = documents.map((document) => toQueueItem(document, reviewByPath.get(document.path)));
+  const retained = currentQueue.filter((item) => !incomingPaths.has(item.path));
+
+  return [...staged, ...retained];
+}
+
+function summarizeQueueMerge(currentQueue: QueueItem[], documents: PickedDocument[]) {
+  const existingPaths = new Set(currentQueue.map((item) => item.path));
+  let added = 0;
+  let updated = 0;
+
+  documents.forEach((document) => {
+    if (existingPaths.has(document.path)) {
+      updated += 1;
+      return;
+    }
+
+    added += 1;
+  });
+
+  return { added, updated };
+}
+
+function formatQueueMergeMessage(added: number, updated: number, sourceLabel: string) {
+  if (added === 0 && updated === 0) {
+    return "";
+  }
+
+  if (added > 0 && updated > 0) {
+    return `Added ${added} document(s) from ${sourceLabel} and refreshed ${updated} existing item(s).`;
+  }
+
+  if (added > 0) {
+    return `Added ${added} document(s) from ${sourceLabel}.`;
+  }
+
+  return `Refreshed ${updated} existing document(s) from ${sourceLabel}.`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function dragPayloadHasFiles(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function getDroppedPathFromUri(rawUri: string) {
+  try {
+    const parsed = new URL(rawUri);
+    if (parsed.protocol !== "file:") {
+      return null;
+    }
+
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    return /^\/[A-Za-z]:/.test(decodedPath) ? decodedPath.slice(1) : decodedPath;
+  } catch {
+    return null;
+  }
+}
+
+function extractDroppedPaths(dataTransfer: DataTransfer) {
+  const filePaths = Array.from(dataTransfer.files)
+    .map((file) => (file as DroppedFile).path ?? "")
+    .filter((filePath) => filePath.length > 0);
+
+  const uriList = dataTransfer.getData("text/uri-list");
+  const uriPaths = uriList
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !entry.startsWith("#"))
+    .map(getDroppedPathFromUri)
+    .filter((filePath): filePath is string => Boolean(filePath));
+
+  return Array.from(new Set([...filePaths, ...uriPaths]));
+}
+
 function buildWorkspaceState(queue: QueueItem[], filterValue: string): WorkspaceState {
   return {
     version: 1,
@@ -161,6 +242,9 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [inspectionProgress, setInspectionProgress] = useState<InspectionProgress | null>(null);
+  const [isDropTargetActive, setIsDropTargetActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const queueRef = useRef(queue);
 
   const normalizedFilter = filterValue.trim().toLowerCase();
   const duplicateFingerprintCounts = queue.reduce((counts, item) => {
@@ -240,22 +324,34 @@ export default function App() {
     };
   }, [queue, filterValue, workspaceReady]);
 
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
   async function handlePickDocuments() {
     setIsRunning(true);
     setStatusMessage("");
     setInspectionProgress(null);
-    const picked = await window.docent.pickDocuments();
-    setIsRunning(false);
 
-    if (picked.length === 0) {
-      return;
+    try {
+      const picked = await window.docent.pickDocuments();
+
+      if (picked.length === 0) {
+        return;
+      }
+
+      const currentQueue = queueRef.current;
+      const mergeSummary = summarizeQueueMerge(currentQueue, picked);
+      const nextQueue = mergeInspectedDocuments(currentQueue, picked);
+      setQueue(nextQueue);
+      setSelectedDocumentId(picked[0].path);
+      setStatusMessage(formatQueueMergeMessage(mergeSummary.added, mergeSummary.updated, "the file picker"));
+      setActiveView("operations");
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to inspect the selected documents."));
+    } finally {
+      setIsRunning(false);
     }
-
-    const reviewByPath = new Map(queue.map((item) => [item.path, item.review]));
-    const staged = picked.map((document) => toQueueItem(document, reviewByPath.get(document.path)));
-    setQueue((current) => [...staged, ...current]);
-    setSelectedDocumentId(staged[0].id);
-    setActiveView("operations");
   }
 
   async function handleReinspect() {
@@ -266,10 +362,18 @@ export default function App() {
     setIsRunning(true);
     setStatusMessage("");
     setInspectionProgress(null);
-    const reviewByPath = new Map(queue.map((item) => [item.path, item.review]));
-    const inspected = await window.docent.inspectDocuments(queue.map((item) => item.path));
-    setQueue(inspected.map((document) => toQueueItem(document, reviewByPath.get(document.path))));
-    setIsRunning(false);
+
+    try {
+      const currentQueue = queueRef.current;
+      const reviewByPath = new Map(currentQueue.map((item) => [item.path, item.review]));
+      const inspected = await window.docent.inspectDocuments(currentQueue.map((item) => item.path));
+      setQueue(inspected.map((document) => toQueueItem(document, reviewByPath.get(document.path))));
+      setStatusMessage(`Re-inspected ${inspected.length} document(s) locally.`);
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to re-run local inspection."));
+    } finally {
+      setIsRunning(false);
+    }
   }
 
   async function handleExportReport() {
@@ -278,15 +382,21 @@ export default function App() {
     }
 
     setIsExporting(true);
-    const result = await window.docent.exportReport(buildInspectionReport(queue, duplicateFingerprintCounts, filterValue));
-    setIsExporting(false);
 
-    if (!result.saved) {
-      setStatusMessage("Export canceled.");
-      return;
+    try {
+      const result = await window.docent.exportReport(buildInspectionReport(queue, duplicateFingerprintCounts, filterValue));
+
+      if (!result.saved) {
+        setStatusMessage("Export canceled.");
+        return;
+      }
+
+      setStatusMessage(result.path ? `Inspection report saved to ${result.path}` : "Inspection report saved.");
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to export the inspection report."));
+    } finally {
+      setIsExporting(false);
     }
-
-    setStatusMessage(result.path ? `Inspection report saved to ${result.path}` : "Inspection report saved.");
   }
 
   async function handleRevealSelected() {
@@ -294,8 +404,12 @@ export default function App() {
       return;
     }
 
-    const revealed = await window.docent.revealDocument(selectedDocument.path);
-    setStatusMessage(revealed ? "Opened the selected file in Finder." : "Unable to reveal the selected file.");
+    try {
+      const revealed = await window.docent.revealDocument(selectedDocument.path);
+      setStatusMessage(revealed ? "Opened the selected file in Finder." : "Unable to reveal the selected file.");
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to reveal the selected file."));
+    }
   }
 
   function handleRemoveSelected() {
@@ -362,6 +476,79 @@ export default function App() {
 
   function openSource(url: string) {
     void window.docent.openExternal(url);
+  }
+
+  function handleQueueDragEnter(event: DragEvent<HTMLElement>) {
+    if (!dragPayloadHasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDropTargetActive(true);
+  }
+
+  function handleQueueDragOver(event: DragEvent<HTMLElement>) {
+    if (!dragPayloadHasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleQueueDragLeave(event: DragEvent<HTMLElement>) {
+    if (!dragPayloadHasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+
+    if (dragDepthRef.current === 0) {
+      setIsDropTargetActive(false);
+    }
+  }
+
+  async function handleQueueDrop(event: DragEvent<HTMLElement>) {
+    if (!dragPayloadHasFiles(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDropTargetActive(false);
+    setIsRunning(true);
+    setStatusMessage("");
+    setInspectionProgress(null);
+
+    try {
+      const droppedPaths = extractDroppedPaths(event.dataTransfer);
+
+      if (droppedPaths.length === 0) {
+        setStatusMessage("No local file paths were found in the dropped selection.");
+        return;
+      }
+
+      const inspected = await window.docent.inspectDocuments(droppedPaths);
+
+      if (inspected.length === 0) {
+        setStatusMessage("No supported documents were found in the dropped selection.");
+        return;
+      }
+
+      const currentQueue = queueRef.current;
+      const mergeSummary = summarizeQueueMerge(currentQueue, inspected);
+      const nextQueue = mergeInspectedDocuments(currentQueue, inspected);
+      setQueue(nextQueue);
+      setSelectedDocumentId(inspected[0].path);
+      setStatusMessage(formatQueueMergeMessage(mergeSummary.added, mergeSummary.updated, "drag and drop"));
+      setActiveView("operations");
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to inspect the dropped documents."));
+    } finally {
+      setIsRunning(false);
+    }
   }
 
   const selectedDocument = filteredQueue.find((item) => item.id === selectedDocumentId) ?? null;
@@ -473,7 +660,13 @@ export default function App() {
 
         {activeView === "operations" && (
           <section className="content-grid">
-            <article className="panel panel-large">
+            <article
+              className={isDropTargetActive ? "panel panel-large panel-drop-target panel-drop-target-active" : "panel panel-large panel-drop-target"}
+              onDragEnter={handleQueueDragEnter}
+              onDragLeave={handleQueueDragLeave}
+              onDragOver={handleQueueDragOver}
+              onDrop={handleQueueDrop}
+            >
               <div className="panel-header">
                 <div>
                   <div className="panel-label">Staging Queue</div>
@@ -486,6 +679,10 @@ export default function App() {
                       ? `${issueCount} issue(s)`
                       : "Ready"}
                 </div>
+              </div>
+
+              <div className={isDropTargetActive ? "drop-hint drop-hint-active" : "drop-hint"}>
+                Drag files from Finder into this queue to inspect them locally. DOCENT upserts by file path, so re-dropping a document refreshes it instead of duplicating the row.
               </div>
 
               <div className="panel-toolbar">
@@ -559,7 +756,7 @@ export default function App() {
                     <strong>{queue.length === 0 ? "No staged documents" : "No matching documents"}</strong>
                     <p>
                       {queue.length === 0
-                        ? "Select documents to inspect them locally. PDFs, PNGs, and JPEGs can now surface review controls, bounded OCR results, and structured extraction where available."
+                        ? "Select documents or drag them from Finder to inspect them locally. PDFs, PNGs, and JPEGs can now surface review controls, bounded OCR results, and structured extraction where available."
                         : "Adjust the filter to see matching documents or export the full inspection report."}
                     </p>
                   </div>

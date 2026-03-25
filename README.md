@@ -4,6 +4,9 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
+- Added drag-and-drop document intake directly into the staging queue for faster local testing from Finder
+- Added queue upsert behavior by file path so re-dropping or re-selecting a file refreshes the existing row instead of duplicating it
+- Added safer operator-facing error handling around local inspection, report export, and file reveal actions
 - Added live inspection progress in the desktop UI, including current file and OCR page progress
 - Added bounded multi-page OCR fallback for weak-text PDFs with a hard three-page cap
 - Added local scan cleanup before OCR to improve recognition on scanned PDFs and image documents
@@ -33,6 +36,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 ## What it does today
 
 - Select documents through the native Electron file picker
+- Drag documents from Finder directly into the staging queue for local inspection
 - Parse PDF files locally on-device
 - Run bounded multi-page OCR locally when PDF text extraction is weak
 - Run local OCR directly on PNG and JPEG files with scan cleanup before recognition

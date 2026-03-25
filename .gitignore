@@ -11,3 +11,4 @@ pnpm-debug.log*
 .env.*
 *.traineddata
 *.traineddata.gz
+DOCENT-Test-Files/
