@@ -4,6 +4,7 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
+- Clarified the local-first review workflow and security posture in the project documentation
 - Added drag-and-drop document intake directly into the staging queue for faster local testing from Finder
 - Added queue upsert behavior by file path so re-dropping or re-selecting a file refreshes the existing row instead of duplicating it
 - Added safer operator-facing error handling around local inspection, report export, and file reveal actions
