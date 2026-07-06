@@ -1,6 +1,6 @@
 # DOCENT
 
-DOCENT is a desktop-first document operations workspace built with Electron, React, and TypeScript. It inspects selected files locally and is designed to demonstrate a more professional, security-conscious document intake flow than qomplement's current website positioning.
+DOCENT is a desktop-first document operations workspace built with Electron, React, and TypeScript. It parses regulated forms and business documents entirely on-device, classifies them against known templates, validates the fields it extracts, and flags sensitive personal data before anyone routes the document anywhere else. It is designed to demonstrate a more professional, security-conscious document intake flow than qomplement's current website positioning.
 
 ## Latest update
 
@@ -18,15 +18,23 @@ Earlier milestones: drag-and-drop intake with queue upsert by path, live inspect
 
 ## Problem
 
-Document-heavy teams still lose time on work that should be structured but usually is not. Internal operations, finance, healthcare, legal support, logistics, and back-office teams routinely receive PDFs, scans, spreadsheets, and forms that must be reviewed, interpreted, re-entered, approved, and delivered into another system. The file is only one part of the workflow. The real operational burden is the handoff between intake, validation, decision-making, and downstream execution.
+Every back-office team that onboards a vendor, hires an employee, processes a health claim, or pays an invoice ends up holding documents packed with regulated personal data: Social Security numbers on a W-9, a taxpayer's income and dependents on a 1040, a new hire's date of birth and citizenship status on an I-9, a patient's diagnosis and insurer ID on a CMS-1500, bank details on an invoice. That data has to be read, keyed into another system, and acted on by a human, and today that almost always means one of two bad paths: someone retypes the values by hand, which is slow and introduces transcription errors into compliance-sensitive fields, or the document gets uploaded to a third-party extraction API before anyone has looked at what is actually in it, which is a real exposure decision made by whoever happened to be doing the filing that day.
 
-This is a real problem because:
+This is a concrete, recurring problem, not a hypothetical one:
 
-- Important business data often arrives inside unstructured or semi-structured documents
-- Teams still manually copy values between files, portals, and internal systems
-- Errors in document handling create compliance, financial, and operational risk
-- Most tools focus on extraction alone, while real teams also need review, trust, and controlled execution
-- Security-sensitive organizations do not want every document workflow to begin with immediate cloud upload
+- Tax, employment, healthcare, and billing documents are structured in practice (they follow known IRS, USCIS, and CMS layouts) but arrive as unstructured PDFs and scans, so teams re-derive the same structure by hand for every document, every time
+- The values inside these documents are exactly the categories regulators care about most: SSNs, EINs, dates of birth, diagnosis codes, account and routing numbers, so a transcription error or an unreviewed export is not just an inconvenience, it is a compliance incident
+- Most extraction tools optimize for getting text out of a page and stop there; they do not tell an operator whether an extracted value is even shaped like a valid TIN or routing number, and they do not tell them the document contains identifiers that make it Restricted before it gets forwarded
+- Security-sensitive organizations (healthcare, legal, financial services, government contractors) cannot accept "upload the document to see what's in it" as the first step of a workflow when the document has not been classified or reviewed yet
+
+## What DOCENT does about it
+
+DOCENT resolves this by moving structure detection, field validation, and PII risk scoring to before the review step instead of after it, and by keeping all of that work on the device instead of a remote service:
+
+- It recognizes five common regulated layouts (IRS W-9, IRS 1040, USCIS I-9, CMS-1500, and generic invoices) from parsed or OCR'd text and maps each one to its known fields instead of returning an undifferentiated text blob
+- It checks the shape of every extracted value against what that field should look like (a real TIN pattern, a plausible date, a valid currency amount, a well-formed email or phone number) and flags mismatches as suspect instead of presenting every extraction with equal confidence
+- It scans the extracted text itself for Social Security numbers, EINs, credit card numbers (Luhn-checked), bank routing numbers (ABA checksum-checked), emails, phone numbers, and dates of birth, and surfaces only masked examples plus a risk level, so an operator knows a document needs Restricted handling before it leaves the queue
+- It keeps every one of those steps, OCR, classification, extraction, validation, and PII scanning, running locally in the Electron main process, so no document or derived field is sent anywhere as a side effect of being inspected
 
 ## Why this project exists
 
