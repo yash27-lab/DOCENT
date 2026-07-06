@@ -4,20 +4,17 @@ DOCENT is a desktop-first document operations workspace built with Electron, Rea
 
 ## Latest update
 
-- Refreshed the project notes for local document review readiness
-- Clarified the local-first review workflow and security posture in the project documentation
-- Added drag-and-drop document intake directly into the staging queue for faster local testing from Finder
-- Added queue upsert behavior by file path so re-dropping or re-selecting a file refreshes the existing row instead of duplicating it
-- Added safer operator-facing error handling around local inspection, report export, and file reveal actions
-- Added live inspection progress in the desktop UI, including current file and OCR page progress
-- Added bounded multi-page OCR fallback for weak-text PDFs with a hard three-page cap
-- Added local scan cleanup before OCR to improve recognition on scanned PDFs and image documents
-- Added richer OCR trace details to the review UI, including processed pages, preprocessing mode, duration, confidence, and recovered text
-- Added OCR-safe cache handling so language data stays in the app-data directory instead of the repo
-- Added local workspace persistence so staged documents, filters, review state, and notes survive restart
-- Added a review workflow with status tracking, notes, and exported review metadata
-- Added the first structured extraction workflow for W-9 detection and schema mapping
-- Added tests for the local document intelligence module and a `npm test` command
+- Expanded structured extraction from a single W-9 workflow into a declarative template registry covering IRS W-9, IRS 1040, USCIS I-9, CMS-1500, and generic invoices
+- Added field-level format validation, so extracted TINs, dates, currency amounts, emails, and phone numbers are checked and flagged as valid or suspect in the review UI
+- Added a local PII exposure scanner that detects Social Security numbers, EINs, credit card numbers (Luhn-verified), bank routing numbers (ABA checksum-verified), emails, phone numbers, and labeled dates of birth, and reports them with masked examples and a risk level
+- Escalated document sensitivity automatically when high-risk PII is detected in locally extracted text
+- Added review-status filter chips, queue sorting, and arrow-key navigation to the staging queue
+- Added a CSV queue summary export alongside the JSON inspection report, with spreadsheet formula injection neutralized
+- Made workspace persistence atomic so a crash mid-save cannot corrupt the stored workspace
+- Serialized concurrent inspection runs in the main process so overlapping intake cannot interleave OCR progress
+- Extended the test suite to 31 tests covering PII detection, template extraction, field validation, and document intelligence
+
+Earlier milestones: drag-and-drop intake with queue upsert by path, live inspection progress, bounded multi-page OCR fallback with scan cleanup, OCR trace details in the review UI, local workspace persistence, and the review workflow with status tracking and notes.
 
 ## Problem
 
@@ -46,12 +43,14 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 - Show real page counts, document metadata, SHA-256 fingerprints, and extracted preview text
 - Surface OCR status, source, confidence, runtime, preprocessing mode, processed pages, and recovered text in the operator workspace
 - Infer likely document type and handling sensitivity from parsed text without leaving the device
-- Persist the local workspace, including review decisions and notes, in the app data directory
+- Scan extracted text locally for PII, including checksum-verified card and routing numbers, and surface masked findings with a per-document risk level
+- Persist the local workspace, including review decisions and notes, in the app data directory with atomic writes
 - Track document review state across `Pending`, `Needs review`, `Approved`, and `Rejected`
-- Detect W-9 templates locally and surface a first structured extraction panel
-- Search the queue by filename, metadata, path, or extracted text
+- Detect IRS W-9, IRS 1040, USCIS I-9, CMS-1500, and invoice layouts through a declarative template registry and surface structured extraction with per-field format validation
+- Search the queue by filename, metadata, path, extracted text, or PII category, filter it by review status, and sort it by name, size, or page count
+- Navigate the staging queue with arrow keys for faster review passes
 - Flag duplicate documents locally through SHA-256 fingerprint matching
-- Export a local JSON inspection report for review or audit handoff
+- Export a local JSON inspection report or a CSV queue summary for review or audit handoff
 - Keep non-PDF files in a metadata-only staging flow
 - Present a market review and product critique for qomplement based on public sources
 
@@ -67,7 +66,7 @@ DOCENT is built around a simple thesis: document automation is not only an OCR p
 
 The current repository is intentionally narrow. It proves the desktop intake and local inspection layer first. The most useful next steps are:
 
-- Add structured field extraction for common document classes
+- Grow the template registry with more document classes and multi-page layout awareness
 - Expand OCR coverage to TIFF, larger scan sets, and smarter per-document OCR scheduling
 - Expand the local classification heuristics into document-specific extraction workflows
 - Add side-by-side review and correction before export

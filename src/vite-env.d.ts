@@ -61,8 +61,22 @@ interface PickedDocument {
       value: string;
       confidence: number;
       status: "Extracted" | "Detected label" | "Missing";
+      validation: "Valid" | "Suspect" | "Not checked";
     }>;
   };
+  pii: PiiScanResult;
+}
+
+interface PiiScanFinding {
+  category: string;
+  count: number;
+  examples: string[];
+}
+
+interface PiiScanResult {
+  riskLevel: "None" | "Low" | "High";
+  totalMatches: number;
+  findings: PiiScanFinding[];
 }
 
 interface ReviewRecord {
@@ -100,6 +114,8 @@ interface InspectionReport {
     approved?: number;
     needsReview?: number;
     rejected?: number;
+    documentsWithPii?: number;
+    highPiiRisk?: number;
   };
   documents: Array<
     WorkspaceDocument & {
@@ -133,6 +149,7 @@ interface Window {
     onInspectionProgress: (callback: (progress: InspectionProgress) => void) => () => void;
     revealDocument: (path: string) => Promise<boolean>;
     exportReport: (report: InspectionReport) => Promise<ExportReportResult>;
+    exportCsv: (csv: string) => Promise<ExportReportResult>;
     loadWorkspace: () => Promise<WorkspaceState | null>;
     saveWorkspace: (state: WorkspaceState) => Promise<boolean>;
   };

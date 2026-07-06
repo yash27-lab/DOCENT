@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("docent", {
   },
   revealDocument: (path: string) => ipcRenderer.invoke("documents:reveal", path),
   exportReport: (report: unknown) => ipcRenderer.invoke("documents:export-report", report),
+  exportCsv: (csv: string) => ipcRenderer.invoke("documents:export-csv", csv),
   loadWorkspace: () => ipcRenderer.invoke("workspace:load"),
   saveWorkspace: (state: unknown) => ipcRenderer.invoke("workspace:save", state)
 });

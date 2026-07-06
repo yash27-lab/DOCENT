@@ -280,12 +280,13 @@ export function sanitizeOcrResult(value: unknown) {
       ? record.status
       : "Not run";
   const asNullableNumber = (input: unknown) => (typeof input === "number" && Number.isFinite(input) ? input : null);
+  const confidence = asNullableNumber(record.confidence);
 
   return buildOcrResult({
     status,
     source: typeof record.source === "string" ? record.source.slice(0, 120) : null,
     engine: typeof record.engine === "string" ? record.engine.slice(0, 120) : null,
-    confidence: asNullableNumber(record.confidence),
+    confidence: confidence === null ? null : Math.max(0, Math.min(100, Math.round(confidence))),
     durationMs: asNullableNumber(record.durationMs),
     pagesProcessed: typeof record.pagesProcessed === "number" && Number.isFinite(record.pagesProcessed) ? Math.max(0, record.pagesProcessed) : 0,
     pageLimit: asNullableNumber(record.pageLimit),

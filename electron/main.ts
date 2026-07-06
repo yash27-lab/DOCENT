@@ -1,10 +1,17 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } from "electron";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFParse } from "pdf-parse";
-import { buildDocumentIntelligence, type DocumentAnalysis, type DocumentMetadata, type StructuredExtraction } from "./document-intelligence";
+import {
+  buildDocumentIntelligence,
+  type DocumentAnalysis,
+  type DocumentMetadata,
+  type PiiScan,
+  type StructuredExtraction
+} from "./document-intelligence";
+import { createEmptyPiiScan } from "./pii-detection";
 import {
   createDefaultOcrResult,
   isDirectImageOcrExtension,
@@ -27,6 +34,7 @@ const previewCharacters = 5000;
 const maxInspectionFiles = 24;
 const maxWorkspaceDocuments = 200;
 const maxPdfParseBytes = 15 * 1024 * 1024;
+const maxCsvExportBytes = 5 * 1024 * 1024;
 const supportedDocumentExtensions = new Set(["PDF", "DOC", "DOCX", "XLS", "XLSX", "CSV", "PNG", "JPG", "JPEG", "TIF", "TIFF"]);
 
 type ReviewStatus = "Pending" | "Approved" | "Needs review" | "Rejected";
@@ -55,6 +63,7 @@ type DocumentInspection = {
   metadata: DocumentMetadata;
   analysis: DocumentAnalysis;
   extraction: StructuredExtraction;
+  pii: PiiScan;
 };
 
 type WorkspaceDocument = DocumentInspection & {
@@ -81,13 +90,13 @@ type InspectionProgress = {
 
 type InspectionReport = {
   generatedAt: string;
-      summary: {
-        documentsSelected: number;
-        parsedLocally: number;
-        ocrCompleted: number;
-        classified: number;
-        metadataOnly: number;
-        issues: number;
+  summary: {
+    documentsSelected: number;
+    parsedLocally: number;
+    ocrCompleted: number;
+    classified: number;
+    metadataOnly: number;
+    issues: number;
     restricted: number;
     duplicates: number;
     totalPages: number;
@@ -96,6 +105,8 @@ type InspectionReport = {
     approved?: number;
     needsReview?: number;
     rejected?: number;
+    documentsWithPii?: number;
+    highPiiRisk?: number;
   };
   documents: Array<
     WorkspaceDocument & {
@@ -231,7 +242,10 @@ function sanitizeExtraction(value: unknown): StructuredExtraction {
             field.status === "Extracted" || field.status === "Detected label" || field.status === "Missing"
               ? field.status
               : "Missing"
-          ) as "Extracted" | "Detected label" | "Missing"
+          ) as "Extracted" | "Detected label" | "Missing",
+          validation: (
+            field.validation === "Valid" || field.validation === "Suspect" ? field.validation : "Not checked"
+          ) as "Valid" | "Suspect" | "Not checked"
         }))
     : [];
 
@@ -239,6 +253,40 @@ function sanitizeExtraction(value: unknown): StructuredExtraction {
     template: typeof value.template === "string" ? value.template.slice(0, 120) : null,
     summary: asString(value.summary, "No structured extraction was available for this document.", 600),
     fields
+  };
+}
+
+const piiCategories = new Set([
+  "Social Security number",
+  "Employer identification number",
+  "Credit card number",
+  "Bank routing number",
+  "Email address",
+  "Phone number",
+  "Date of birth"
+]);
+
+function sanitizePiiScan(value: unknown): PiiScan {
+  if (!isRecord(value)) {
+    return createEmptyPiiScan();
+  }
+
+  const findings: PiiScan["findings"] = Array.isArray(value.findings)
+    ? value.findings
+        .filter((entry): entry is Record<string, unknown> => isRecord(entry))
+        .filter((entry) => typeof entry.category === "string" && piiCategories.has(entry.category))
+        .slice(0, 16)
+        .map((entry) => ({
+          category: entry.category as PiiScan["findings"][number]["category"],
+          count: Math.max(0, Math.round(asNumber(entry.count, 0))),
+          examples: asStringArray(entry.examples, 3, 80)
+        }))
+    : [];
+
+  return {
+    riskLevel: value.riskLevel === "High" || value.riskLevel === "Low" ? value.riskLevel : "None",
+    totalMatches: Math.max(0, Math.round(asNumber(value.totalMatches, 0))),
+    findings
   };
 }
 
@@ -325,7 +373,8 @@ function buildErrorInspection(filePath: string, note: string): DocumentInspectio
       template: null,
       summary: note,
       fields: []
-    }
+    },
+    pii: createEmptyPiiScan()
   };
 }
 
@@ -407,6 +456,7 @@ function sanitizeWorkspaceDocument(value: unknown): WorkspaceDocument | null {
     metadata: sanitizeMetadata(value.metadata),
     analysis: sanitizeAnalysis(value.analysis),
     extraction: sanitizeExtraction(value.extraction),
+    pii: sanitizePiiScan(value.pii),
     review: sanitizeReviewState(value.review)
   };
 }
@@ -447,8 +497,13 @@ async function readWorkspaceState() {
 
 async function writeWorkspaceState(state: WorkspaceState) {
   const workspaceStatePath = getWorkspaceStatePath();
+  const temporaryPath = `${workspaceStatePath}.tmp`;
   await mkdir(path.dirname(workspaceStatePath), { recursive: true });
-  await writeFile(workspaceStatePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+  // Write to a sibling file first so a crash mid-write cannot corrupt the
+  // only copy of the operator's workspace.
+  await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await rename(temporaryPath, workspaceStatePath);
 }
 
 async function inspectDocument(filePath: string, currentFileIndex: number, totalFiles: number): Promise<DocumentInspection> {
@@ -512,7 +567,8 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
       template: null,
       summary: "Structured extraction is available only when local text inspection succeeds.",
       fields: []
-    }
+    },
+    pii: createEmptyPiiScan()
   };
 
   if (isDirectImageOcrExtension(extension)) {
@@ -531,7 +587,8 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
         note: ocr.note,
         ocr,
         analysis: intelligence.analysis,
-        extraction: intelligence.extraction
+        extraction: intelligence.extraction,
+        pii: intelligence.pii
       };
     }
 
@@ -551,7 +608,8 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
               signals: []
             }
           : intelligence.analysis,
-      extraction: ocr.status === "Failed" ? base.extraction : intelligence.extraction
+      extraction: ocr.status === "Failed" ? base.extraction : intelligence.extraction,
+      pii: ocr.status === "Failed" ? base.pii : intelligence.pii
     };
   }
 
@@ -630,7 +688,8 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
       ocr,
       metadata,
       analysis: intelligence.analysis,
-      extraction: intelligence.extraction
+      extraction: intelligence.extraction,
+      pii: intelligence.pii
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown PDF parse error";
@@ -650,7 +709,8 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
         note: `Primary PDF text parsing failed, but OCR fallback recovered text from ${ocr.pagesProcessed} page(s). Original parser error: ${message}`,
         ocr,
         analysis: intelligence.analysis,
-        extraction: intelligence.extraction
+        extraction: intelligence.extraction,
+        pii: intelligence.pii
       };
     }
 
@@ -676,6 +736,17 @@ async function inspectDocument(filePath: string, currentFileIndex: number, total
   } finally {
     await parser.destroy().catch(() => undefined);
   }
+}
+
+// Inspections share one OCR worker and one progress channel, so overlapping
+// runs (a drop landing while the picker flow is still working) are chained
+// instead of interleaved.
+let inspectionChain: Promise<unknown> = Promise.resolve();
+
+function enqueueInspection<T>(task: () => Promise<T>): Promise<T> {
+  const run = inspectionChain.then(task, task);
+  inspectionChain = run.catch(() => undefined);
+  return run;
 }
 
 async function inspectDocuments(filePaths: string[]) {
@@ -831,10 +902,12 @@ ipcMain.handle("documents:pick", async () => {
     return [];
   }
 
-  return inspectDocuments(sanitizeInspectablePaths(result.filePaths));
+  return enqueueInspection(() => inspectDocuments(sanitizeInspectablePaths(result.filePaths)));
 });
 
-ipcMain.handle("documents:inspect", async (_event, filePaths: unknown) => inspectDocuments(sanitizeInspectablePaths(filePaths)));
+ipcMain.handle("documents:inspect", async (_event, filePaths: unknown) =>
+  enqueueInspection(() => inspectDocuments(sanitizeInspectablePaths(filePaths)))
+);
 
 ipcMain.handle("documents:reveal", async (_event, filePath: unknown) => {
   if (typeof filePath !== "string") {
@@ -877,6 +950,31 @@ ipcMain.handle("documents:export-report", async (_event, report: InspectionRepor
   }
 
   await writeFile(result.filePath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  return {
+    saved: true,
+    path: result.filePath
+  };
+});
+
+ipcMain.handle("documents:export-csv", async (_event, csv: unknown) => {
+  const targetWindow = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!targetWindow || typeof csv !== "string" || !csv.trim() || Buffer.byteLength(csv, "utf8") > maxCsvExportBytes) {
+    return { saved: false };
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const result = await dialog.showSaveDialog(targetWindow, {
+    title: "Export queue summary",
+    defaultPath: path.join(app.getPath("documents"), `docent-queue-summary-${timestamp}.csv`),
+    filters: [{ name: "CSV", extensions: ["csv"] }]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { saved: false };
+  }
+
+  await writeFile(result.filePath, csv, "utf8");
 
   return {
     saved: true,

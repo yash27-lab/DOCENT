@@ -29,7 +29,11 @@ This repository currently ships a desktop Electron client only. There is no back
 - OCR language data is cached under the app data directory rather than the repository workspace.
 - Broken or inaccessible files fail per-document instead of aborting the full inspection batch.
 - Workspace state is persisted locally through the main process instead of exposing direct filesystem writes to the renderer.
+- Workspace writes are atomic (write to a temporary file, then rename), so a crash mid-save cannot corrupt the stored workspace.
 - Review notes and review status remain local to the device unless the user explicitly exports a report.
+- PII scanning runs entirely on-device against already-extracted text; detected identifiers are stored and displayed only in masked form.
+- Concurrent inspection requests are serialized in the main process so overlapping runs cannot interleave OCR work or progress events.
+- CSV exports neutralize spreadsheet formula injection by prefixing cell values that start with formula trigger characters.
 
 Relevant code:
 

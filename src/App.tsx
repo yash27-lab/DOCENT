@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import {
   analystNotes,
   betterProductMoves,
@@ -13,6 +13,10 @@ import {
 type View = "operations" | "workflow" | "security" | "market";
 type QueueItem = WorkspaceDocument;
 type DroppedFile = File & { path?: string };
+type ReviewFilter = "All" | ReviewStatus;
+type QueueSortOrder = "added" | "name" | "size" | "pages";
+
+const reviewFilterOptions: ReviewFilter[] = ["All", "Pending", "Needs review", "Approved", "Rejected"];
 
 function createDefaultReviewRecord(): ReviewRecord {
   return {
@@ -91,12 +95,87 @@ function buildSearchText(item: QueueItem) {
     item.analysis.signals.join(" "),
     item.extraction.template ?? "",
     item.extraction.summary,
-    item.extraction.fields.map((field) => `${field.label} ${field.value} ${field.status}`).join(" "),
+    item.extraction.fields.map((field) => `${field.label} ${field.value} ${field.status} ${field.validation}`).join(" "),
+    item.pii.riskLevel,
+    item.pii.findings.map((finding) => finding.category).join(" "),
     item.review.status,
     item.review.notes
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function sortQueueItems(items: QueueItem[], order: QueueSortOrder) {
+  if (order === "added") {
+    return items;
+  }
+
+  const sorted = [...items];
+
+  if (order === "name") {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (order === "size") {
+    sorted.sort((a, b) => b.fileSizeBytes - a.fileSizeBytes);
+  } else {
+    sorted.sort((a, b) => (b.pageCount ?? 0) - (a.pageCount ?? 0));
+  }
+
+  return sorted;
+}
+
+function escapeCsvValue(value: string | number | null) {
+  let text = value === null ? "" : String(value);
+
+  // Neutralize spreadsheet formula injection before quoting.
+  if (/^[=+\-@\t]/.test(text)) {
+    text = `'${text}`;
+  }
+
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildQueueCsv(queue: QueueItem[], duplicateFingerprintCounts: Map<string, number>) {
+  const header = [
+    "Name",
+    "Extension",
+    "Size (bytes)",
+    "Pages",
+    "Inspection status",
+    "Document class",
+    "Sensitivity",
+    "Classification confidence",
+    "PII risk",
+    "PII matches",
+    "Extraction template",
+    "Review status",
+    "Reviewed at",
+    "OCR status",
+    "Duplicate",
+    "SHA-256",
+    "Path"
+  ];
+
+  const rows = queue.map((item) => [
+    item.name,
+    item.extension,
+    item.fileSizeBytes,
+    item.pageCount ?? "",
+    item.status,
+    item.analysis.documentClass,
+    item.analysis.sensitivity,
+    item.analysis.confidence,
+    item.pii.riskLevel,
+    item.pii.totalMatches,
+    item.extraction.template ?? "",
+    item.review.status,
+    item.review.reviewedAt ?? "",
+    item.ocr.status,
+    (duplicateFingerprintCounts.get(item.sha256) ?? 0) > 1 ? "Yes" : "No",
+    item.sha256,
+    item.path
+  ]);
+
+  return `${[header, ...rows].map((row) => row.map(escapeCsvValue).join(",")).join("\n")}\n`;
 }
 
 function mergeInspectedDocuments(currentQueue: QueueItem[], documents: PickedDocument[]) {
@@ -209,7 +288,9 @@ function buildInspectionReport(
       pendingReview: queue.filter((item) => item.review.status === "Pending").length,
       approved: queue.filter((item) => item.review.status === "Approved").length,
       needsReview: queue.filter((item) => item.review.status === "Needs review").length,
-      rejected: queue.filter((item) => item.review.status === "Rejected").length
+      rejected: queue.filter((item) => item.review.status === "Rejected").length,
+      documentsWithPii: queue.filter((item) => item.pii.totalMatches > 0).length,
+      highPiiRisk: queue.filter((item) => item.pii.riskLevel === "High").length
     },
     documents: queue.map((item) => ({
       ...item,
@@ -239,6 +320,8 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [filterValue, setFilterValue] = useState("");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("All");
+  const [sortOrder, setSortOrder] = useState<QueueSortOrder>("added");
   const [statusMessage, setStatusMessage] = useState("");
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [inspectionProgress, setInspectionProgress] = useState<InspectionProgress | null>(null);
@@ -247,11 +330,32 @@ export default function App() {
   const queueRef = useRef(queue);
 
   const normalizedFilter = filterValue.trim().toLowerCase();
-  const duplicateFingerprintCounts = queue.reduce((counts, item) => {
-    counts.set(item.sha256, (counts.get(item.sha256) ?? 0) + 1);
+  const duplicateFingerprintCounts = useMemo(
+    () =>
+      queue.reduce((counts, item) => {
+        counts.set(item.sha256, (counts.get(item.sha256) ?? 0) + 1);
+        return counts;
+      }, new Map<string, number>()),
+    [queue]
+  );
+  const filteredQueue = useMemo(() => {
+    const matched = queue.filter(
+      (item) =>
+        (reviewFilter === "All" || item.review.status === reviewFilter) &&
+        buildSearchText(item).includes(normalizedFilter)
+    );
+
+    return sortQueueItems(matched, sortOrder);
+  }, [queue, normalizedFilter, reviewFilter, sortOrder]);
+  const reviewFilterCounts = useMemo(() => {
+    const counts = new Map<ReviewFilter, number>([["All", queue.length]]);
+
+    for (const item of queue) {
+      counts.set(item.review.status, (counts.get(item.review.status) ?? 0) + 1);
+    }
+
     return counts;
-  }, new Map<string, number>());
-  const filteredQueue = queue.filter((item) => buildSearchText(item).includes(normalizedFilter));
+  }, [queue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,7 +412,7 @@ export default function App() {
     setSelectedDocumentId((current) =>
       current && filteredQueue.some((item) => item.id === current) ? current : filteredQueue[0].id
     );
-  }, [queue, normalizedFilter]);
+  }, [filteredQueue]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -399,6 +503,49 @@ export default function App() {
     }
   }
 
+  async function handleExportCsv() {
+    if (queue.length === 0) {
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const result = await window.docent.exportCsv(buildQueueCsv(queue, duplicateFingerprintCounts));
+
+      if (!result.saved) {
+        setStatusMessage("Export canceled.");
+        return;
+      }
+
+      setStatusMessage(result.path ? `Queue summary saved to ${result.path}` : "Queue summary saved.");
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error, "Unable to export the queue summary."));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  function handleQueueKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if ((event.key !== "ArrowDown" && event.key !== "ArrowUp") || filteredQueue.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const currentIndex = filteredQueue.findIndex((item) => item.id === selectedDocumentId);
+
+    if (currentIndex === -1) {
+      setSelectedDocumentId(filteredQueue[0].id);
+      return;
+    }
+
+    const nextIndex =
+      event.key === "ArrowDown"
+        ? Math.min(filteredQueue.length - 1, currentIndex + 1)
+        : Math.max(0, currentIndex - 1);
+    setSelectedDocumentId(filteredQueue[nextIndex].id);
+  }
+
   async function handleRevealSelected() {
     if (!selectedDocument) {
       return;
@@ -429,6 +576,8 @@ export default function App() {
 
     setQueue([]);
     setFilterValue("");
+    setReviewFilter("All");
+    setSortOrder("added");
     setSelectedDocumentId(null);
     setStatusMessage("Cleared the staging queue.");
   }
@@ -561,6 +710,7 @@ export default function App() {
   const ocrCompletedCount = queue.filter((item) => item.ocr.status === "Completed").length;
   const pendingReviewCount = queue.filter((item) => item.review.status === "Pending").length;
   const approvedCount = queue.filter((item) => item.review.status === "Approved").length;
+  const piiFlaggedCount = queue.filter((item) => item.pii.totalMatches > 0).length;
   const selectedDuplicateCount = selectedDocument ? duplicateFingerprintCounts.get(selectedDocument.sha256) ?? 1 : 0;
   const inspectionProgressLabel = formatInspectionProgress(inspectionProgress);
 
@@ -621,11 +771,12 @@ export default function App() {
 
         <section className="hero-grid">
           <article className="hero-card hero-card-primary">
-            <div className="panel-label">Local Parsing</div>
-            <h3>Local OCR now recovers text from multi-page scanned PDFs and image documents</h3>
+            <div className="panel-label">Local Intelligence</div>
+            <h3>Structured extraction now covers five document templates with local PII scanning</h3>
             <p>
-              DOCENT now runs bounded multi-page OCR for weak-text PDFs plus scan cleanup for PNG and JPEG files,
-              while preserving local workspace restore, review state, and structured W-9 extraction.
+              DOCENT detects W-9, 1040, I-9, CMS-1500, and invoice layouts, validates extracted field formats,
+              and scans every parsed document for Social Security numbers, card numbers, routing numbers, and
+              other identifiers without any text leaving the device.
             </p>
             <div className="hero-actions">
               <button className="link-button" onClick={handlePickDocuments} type="button">
@@ -697,17 +848,48 @@ export default function App() {
                   />
                 </label>
 
+                <label className="sort-shell">
+                  <span className="search-label">Sort</span>
+                  <select
+                    className="sort-select"
+                    onChange={(event) => setSortOrder(event.target.value as QueueSortOrder)}
+                    value={sortOrder}
+                  >
+                    <option value="added">Recently staged</option>
+                    <option value="name">Name</option>
+                    <option value="size">Largest first</option>
+                    <option value="pages">Most pages</option>
+                  </select>
+                </label>
+
                 <div className="toolbar-actions">
                   <div className="toolbar-meta">
                     {filteredQueue.length} result{filteredQueue.length === 1 ? "" : "s"}
                   </div>
                   <button className="utility-button" disabled={queue.length === 0 || isExporting} onClick={handleExportReport} type="button">
-                    {isExporting ? "Saving report" : "Export JSON report"}
+                    {isExporting ? "Saving" : "Export JSON report"}
+                  </button>
+                  <button className="utility-button" disabled={queue.length === 0 || isExporting} onClick={handleExportCsv} type="button">
+                    Export CSV
                   </button>
                   <button className="utility-button utility-button-danger" disabled={queue.length === 0} onClick={handleClearQueue} type="button">
                     Clear queue
                   </button>
                 </div>
+              </div>
+
+              <div className="filter-chip-row" role="group" aria-label="Filter by review status">
+                {reviewFilterOptions.map((option) => (
+                  <button
+                    className={reviewFilter === option ? "filter-chip filter-chip-active" : "filter-chip"}
+                    key={option}
+                    onClick={() => setReviewFilter(option)}
+                    type="button"
+                  >
+                    {option}
+                    <span className="filter-chip-count">{reviewFilterCounts.get(option) ?? 0}</span>
+                  </button>
+                ))}
               </div>
 
               <div className="summary-strip">
@@ -731,6 +913,10 @@ export default function App() {
                   <span>Approved</span>
                   <strong>{approvedCount}</strong>
                 </div>
+                <div className="summary-chip">
+                  <span>PII flagged</span>
+                  <strong>{piiFlaggedCount}</strong>
+                </div>
               </div>
 
               {isRunning && inspectionProgress ? (
@@ -743,7 +929,7 @@ export default function App() {
 
               {statusMessage ? <p className="inline-note">{statusMessage}</p> : null}
 
-              <div className="table">
+              <div className="table" onKeyDown={handleQueueKeyDown}>
                 <div className="table-head">
                   <span>Document</span>
                   <span>Pages</span>
@@ -787,6 +973,7 @@ export default function App() {
                               {item.ocr.confidence !== null ? `  •  ${item.ocr.confidence}%` : ""}
                             </small>
                           ) : null}
+                          {item.pii.riskLevel === "High" ? <small className="table-flag">High PII exposure</small> : null}
                           {duplicateFingerprintCount > 1 ? <small className="table-flag">Duplicate fingerprint in queue</small> : null}
                         </span>
                         <span>{item.pageCount ?? "n/a"}</span>
@@ -927,6 +1114,31 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="analysis-card">
+                    <span>PII exposure</span>
+                    <strong>
+                      {selectedDocument.pii.totalMatches > 0
+                        ? `${selectedDocument.pii.totalMatches} potential identifier(s) detected in locally extracted text.`
+                        : "No personally identifiable information was detected in the locally extracted text."}
+                    </strong>
+                    <div className={`pii-risk pii-risk-${selectedDocument.pii.riskLevel.toLowerCase()}`}>
+                      {selectedDocument.pii.riskLevel} risk
+                    </div>
+                    {selectedDocument.pii.findings.length > 0 ? (
+                      <div className="pii-list">
+                        {selectedDocument.pii.findings.map((finding) => (
+                          <div className="pii-item" key={finding.category}>
+                            <strong>{finding.category}</strong>
+                            <small>
+                              {finding.count} match{finding.count === 1 ? "" : "es"}
+                              {finding.examples.length > 0 ? `  •  ${finding.examples.join(", ")}` : ""}
+                            </small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
                   {selectedDocument.extraction.template || selectedDocument.extraction.fields.length > 0 ? (
                     <div className="analysis-card">
                       <span>Structured extraction</span>
@@ -943,6 +1155,17 @@ export default function App() {
                             <small>
                               {field.status}  •  {field.confidence}%
                             </small>
+                            {field.validation !== "Not checked" ? (
+                              <small
+                                className={
+                                  field.validation === "Valid"
+                                    ? "validation-tag validation-valid"
+                                    : "validation-tag validation-suspect"
+                                }
+                              >
+                                {field.validation === "Valid" ? "Format check passed" : "Format check failed"}
+                              </small>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -1073,8 +1296,9 @@ export default function App() {
                 <li>PDF metadata and preview text are parsed locally on the device.</li>
                 <li>Weak-text PDFs can trigger bounded multi-page OCR fallback, and PNG or JPEG documents can run direct local OCR.</li>
                 <li>Likely document type, handling sensitivity, and processing signals are inferred locally from parsed text.</li>
-                <li>Workspace state, review notes, and review decisions persist locally in the app data folder.</li>
-                <li>The first structured extraction workflow now targets W-9 detection and schema mapping.</li>
+                <li>Extracted text is scanned on-device for PII, and detected identifiers are stored and shown only in masked form.</li>
+                <li>Workspace state, review notes, and review decisions persist locally in the app data folder with atomic writes.</li>
+                <li>Structured extraction covers W-9, 1040, I-9, CMS-1500, and invoice layouts with per-field format validation.</li>
                 <li>Inspection is limited to allowlisted file extensions, capped batch sizes, and guarded PDF parse size limits.</li>
                 <li>OCR language data is cached locally after first use, and scan cleanup is performed locally before OCR. Document contents are not uploaded for OCR processing.</li>
                 <li>A native JSON report can be exported locally for review or audit handoff.</li>

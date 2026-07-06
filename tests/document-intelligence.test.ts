@@ -67,4 +67,44 @@ test("returns a scanned-document fallback when OCR does not recover image text",
 
   assert.equal(result.analysis.documentClass, "Unclassified scanned document");
   assert.equal(result.extraction.template, null);
+  assert.equal(result.pii.riskLevel, "None");
+});
+
+test("classifies invoices through the template registry", () => {
+  const previewText = `
+    Invoice Number: INV-889
+    Invoice Date: March 3, 2026
+    Payment Terms: Net 30
+    Bill To: Example Manufacturing
+    Amount Due: $2,150.00
+  `;
+
+  const result = buildDocumentIntelligence("PDF", previewText, emptyMetadata);
+
+  assert.equal(result.analysis.documentClass, "Invoice or billing document");
+  assert.equal(result.extraction.template, "Invoice");
+  assert.ok(result.analysis.confidence >= 60);
+});
+
+test("surfaces local PII findings and escalates sensitivity", () => {
+  const previewText = `
+    Reimbursement request
+    Employee SSN: 536-22-1234
+    Contact: jane.doe@example.com
+  `;
+
+  const result = buildDocumentIntelligence("PDF", previewText, emptyMetadata);
+
+  assert.equal(result.pii.riskLevel, "High");
+  assert.ok(result.pii.findings.some((finding) => finding.category === "Social Security number"));
+  assert.equal(result.analysis.sensitivity, "Restricted");
+  assert.ok(result.analysis.signals.some((signal) => signal.startsWith("Local PII scan flagged")));
+});
+
+test("keeps clean business text at standard sensitivity with no findings", () => {
+  const previewText = "Quarterly planning summary for the operations review meeting.";
+  const result = buildDocumentIntelligence("PDF", previewText, emptyMetadata);
+
+  assert.equal(result.pii.riskLevel, "None");
+  assert.equal(result.analysis.sensitivity, "Standard");
 });

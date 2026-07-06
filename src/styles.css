@@ -339,6 +339,68 @@ button {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.sort-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.sort-select {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  padding: 12px 14px;
+  color: var(--text);
+}
+
+.sort-select:focus {
+  outline: 2px solid rgba(31, 79, 123, 0.16);
+  border-color: rgba(31, 79, 123, 0.4);
+}
+
+.filter-chip-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.87rem;
+  transition: 160ms ease;
+}
+
+.filter-chip:hover {
+  border-color: rgba(31, 79, 123, 0.34);
+  color: var(--accent);
+}
+
+.filter-chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #f4f7fb;
+}
+
+.filter-chip-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 32, 48, 0.08);
+  font-size: 0.78rem;
+}
+
+.filter-chip-active .filter-chip-count {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .toolbar-meta,
@@ -390,7 +452,7 @@ button {
 
 .summary-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -753,6 +815,74 @@ button {
   font-size: 0.83rem;
   line-height: 1.6;
   color: #213341;
+}
+
+.pii-risk {
+  width: fit-content;
+  margin-top: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.pii-risk-none {
+  color: var(--success);
+  background: rgba(29, 106, 79, 0.1);
+}
+
+.pii-risk-low {
+  color: var(--warning);
+  background: rgba(147, 98, 47, 0.1);
+}
+
+.pii-risk-high {
+  color: var(--danger);
+  background: rgba(126, 63, 70, 0.12);
+}
+
+.pii-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pii-item {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #f7fafc;
+}
+
+.pii-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.pii-item small {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.validation-tag {
+  display: inline-block;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.validation-valid {
+  color: var(--success);
+  background: rgba(29, 106, 79, 0.1);
+}
+
+.validation-suspect {
+  color: var(--danger);
+  background: rgba(126, 63, 70, 0.1);
 }
 
 .signal-list {
