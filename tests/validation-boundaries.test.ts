@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("rejects malformed currency precision and grouping", () => {
+  for (const amount of ["1.234", "12,34.56", "1.2", "NaN"]) {
+    assert.equal(isValidCurrencyAmount(amount), false);
+  }
+});
+
 test("accepts grouped and plain currency amounts", () => {
   for (const amount of ["$1,234.56", "1234.56", "0.00"]) {
     assert.equal(isValidCurrencyAmount(amount), true);
