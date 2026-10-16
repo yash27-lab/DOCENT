@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("recognizes supported TIN shapes without claiming issuance validity", () => {
+  for (const tin of ["123-45-6789", "12-3456789", "123456789"]) {
+    assert.equal(isValidTin(tin), true);
+  }
+});
+
 test("rejects malformed currency precision and grouping", () => {
   for (const amount of ["1.234", "12,34.56", "1.2", "NaN"]) {
     assert.equal(isValidCurrencyAmount(amount), false);
