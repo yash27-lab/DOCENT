@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("preserves supported numeric date separators", () => {
+  for (const date of ["04-30-2026", "04 30 2026", " 04/30/2026 "]) {
+    assert.equal(isPlausibleDate(date), true);
+  }
+});
+
 test("preserves two-digit-year leap handling", () => {
   assert.equal(isPlausibleDate("02/29/24"), true);
   assert.equal(isPlausibleDate("02/29/25"), false);
