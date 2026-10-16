@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("rejects card checksum candidates outside length limits", () => {
+  assert.equal(passesLuhnCheck("41111111111"), false);
+  assert.equal(passesLuhnCheck("41111111111111111111"), false);
+  assert.equal(passesLuhnCheck("4111 1111 1111 1111"), false);
+});
+
 test("rejects alphabetic and truncated TIN shapes", () => {
   for (const tin of ["12345678", "1234567890", "ABC-DE-FGHI"]) {
     assert.equal(isValidTin(tin), false);
