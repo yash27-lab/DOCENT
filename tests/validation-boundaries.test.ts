@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("accepts five-digit and ZIP-plus-four postal formats", () => {
+  assert.equal(isValidZipCode("01234"), true);
+  assert.equal(isValidZipCode("01234-5678"), true);
+});
+
 test("rejects numeric dates containing trailing junk", () => {
   assert.equal(isPlausibleDate("04/30/2026 extra"), false);
 });
