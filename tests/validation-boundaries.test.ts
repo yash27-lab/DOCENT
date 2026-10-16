@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("rejects day 31 in every thirty-day month", () => {
+  for (const month of ["04", "06", "09", "11"]) {
+    assert.equal(isPlausibleDate(`${month}/31/2026`), false);
+  }
+});
+
 test("applies the Gregorian century exception", () => {
   assert.equal(isPlausibleDate("02/29/1900"), false);
   assert.equal(isPlausibleDate("02/29/2000"), true);
