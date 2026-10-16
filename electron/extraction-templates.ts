@@ -61,7 +61,11 @@ export function isPlausibleDate(value: string) {
   if (numeric) {
     const month = Number(numeric[1]);
     const day = Number(numeric[2]);
-    return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+    // Preserve two-digit input support using the 2000–2099 calendar.
+    const year = Number(numeric[3]) + (numeric[3].length === 2 ? 2000 : 0);
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
   }
 
   const monthName =
