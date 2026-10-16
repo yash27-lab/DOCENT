@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("keeps repeated PII scans independent", () => {
+  const text = "Contact test@example.com";
+  assert.deepEqual(scanForPii(text), scanForPii(text));
+  assert.equal(scanForPii("").totalMatches, 0);
+});
+
 test("rejects malformed routing-number input lengths", () => {
   for (const routing of ["02100002", "0210000210", "02100A021"]) {
     assert.equal(isValidAbaRoutingNumber(routing), false);
