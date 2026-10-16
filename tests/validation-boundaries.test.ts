@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("rejects alphabetic and truncated TIN shapes", () => {
+  for (const tin of ["12345678", "1234567890", "ABC-DE-FGHI"]) {
+    assert.equal(isValidTin(tin), false);
+  }
+});
+
 test("recognizes supported TIN shapes without claiming issuance validity", () => {
   for (const tin of ["123-45-6789", "12-3456789", "123456789"]) {
     assert.equal(isValidTin(tin), true);
