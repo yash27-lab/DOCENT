@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("rejects non-leap February 29", () => {
+  assert.equal(isPlausibleDate("02/29/2025"), false);
+});
+
 test("accepts leap-year February 29", () => {
   assert.equal(isPlausibleDate("02/29/2024"), true);
 });
