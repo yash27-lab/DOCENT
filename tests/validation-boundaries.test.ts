@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { isPlausibleDate, isValidCurrencyAmount, isValidTin, isValidZipCode } from "../electron/extraction-templates";
 import { isValidAbaRoutingNumber, passesLuhnCheck, scanForPii } from "../electron/pii-detection";
 
+test("accepts grouped and plain currency amounts", () => {
+  for (const amount of ["$1,234.56", "1234.56", "0.00"]) {
+    assert.equal(isValidCurrencyAmount(amount), true);
+  }
+});
+
 test("rejects malformed postal formats", () => {
   for (const zip of ["1234", "123456", "12345-678", "ABCDE"]) {
     assert.equal(isValidZipCode(zip), false);
