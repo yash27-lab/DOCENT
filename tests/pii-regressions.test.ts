@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("international US phone prefixes retain masked output", () => {
+  assert.deepEqual(finding("+1 415-555-0123", "Phone number")?.examples, ["(***) ***-0123"]);
+});
+
 test("email examples remain capped while counts grow", () => {
   const result = finding("amy@example.com bob@example.com cat@example.com dan@example.com", "Email address");
   assert.equal(result?.count, 4);
