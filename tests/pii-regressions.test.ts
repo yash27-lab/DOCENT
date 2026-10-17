@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("email examples remain capped while counts grow", () => {
+  const result = finding("amy@example.com bob@example.com cat@example.com dan@example.com", "Email address");
+  assert.equal(result?.count, 4);
+  assert.equal(result?.examples.length, 3);
+});
+
 test("repeated emails count every occurrence", () => {
   const result = finding("jane@example.com; jane@example.com", "Email address");
   assert.equal(result?.count, 2);
