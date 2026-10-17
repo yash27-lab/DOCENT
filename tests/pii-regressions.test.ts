@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("non-identifier Unicode text stays unflagged", () => {
+  assert.equal(scanForPii("研究 résumé 🧬").totalMatches, 0);
+});
+
 test("whitespace-only scans remain empty", () => {
   assert.deepEqual(scanForPii(" \n\t\r "), createEmptyPiiScan());
 });
