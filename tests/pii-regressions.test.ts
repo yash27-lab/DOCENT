@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("plus-addressed emails keep masking the local part", () => {
+  assert.deepEqual(finding("jane+reports@example.com", "Email address")?.examples, ["j***@example.com"]);
+});
+
 test("serialized SSN findings never contain the full input identifier", () => {
   const result = JSON.stringify(scanForPii("Employee 536-22-1234"));
   assert.equal(result.includes("536-22-1234"), false);
