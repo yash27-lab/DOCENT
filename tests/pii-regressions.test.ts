@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("serialized SSN findings never contain the full input identifier", () => {
+  const result = JSON.stringify(scanForPii("Employee 536-22-1234"));
+  assert.equal(result.includes("536-22-1234"), false);
+  assert.ok(result.includes("***-**-1234"));
+});
+
 test("different SSNs with equal masked tails share one safe example", () => {
   const result = finding("536-22-1234; 537-23-1234", "Social Security number");
   assert.equal(result?.count, 2);
