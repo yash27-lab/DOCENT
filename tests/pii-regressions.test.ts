@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("repeated SSNs count occurrences without duplicating examples", () => {
+  const result = finding("536-22-1234; 536-22-1234", "Social Security number");
+  assert.equal(result?.count, 2);
+  assert.equal(result?.examples.length, 1);
+});
+
 test("SSN detection rejects a following extra digit", () => {
   assert.equal(finding("536-22-12345", "Social Security number"), undefined);
 });
