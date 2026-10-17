@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("SSN detection rejects a following extra digit", () => {
+  assert.equal(finding("536-22-12345", "Social Security number"), undefined);
+});
+
 test("SSN detection rejects a preceding extra digit", () => {
   assert.equal(finding("1536-22-1234", "Social Security number"), undefined);
 });
