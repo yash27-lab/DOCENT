@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("whitespace-only scans remain empty", () => {
+  assert.deepEqual(scanForPii(" \n\t\r "), createEmptyPiiScan());
+});
+
 test("empty PII scans allocate independent findings arrays", () => {
   const a = createEmptyPiiScan();
   const b = createEmptyPiiScan();
