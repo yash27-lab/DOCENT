@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("different SSNs with equal masked tails share one safe example", () => {
+  const result = finding("536-22-1234; 537-23-1234", "Social Security number");
+  assert.equal(result?.count, 2);
+  assert.deepEqual(result?.examples, ["***-**-1234"]);
+});
+
 test("repeated SSNs count occurrences without duplicating examples", () => {
   const result = finding("536-22-1234; 536-22-1234", "Social Security number");
   assert.equal(result?.count, 2);
