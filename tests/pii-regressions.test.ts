@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("finding counts sum to the total accepted matches", () => {
+  const result = scanForPii("jane@example.com; 415-555-0123; SSN 536-22-1234");
+  assert.equal(result.totalMatches, result.findings.reduce((sum, entry) => sum + entry.count, 0));
+  assert.equal(result.totalMatches, 3);
+});
+
 test("high-risk matches dominate mixed contact findings", () => {
   const result = scanForPii("jane@example.com; SSN 536-22-1234");
   assert.equal(result.riskLevel, "High");
