@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("repeated emails count every occurrence", () => {
+  const result = finding("jane@example.com; jane@example.com", "Email address");
+  assert.equal(result?.count, 2);
+  assert.equal(result?.examples.length, 1);
+});
+
 test("uppercase email candidates remain detectable", () => {
   assert.ok(finding("JANE@EXAMPLE.COM", "Email address"));
 });
