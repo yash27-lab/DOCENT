@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("phone findings never serialize the complete input number", () => {
+  assert.equal(JSON.stringify(scanForPii("415-555-0123")).includes("415-555-0123"), false);
+});
+
 test("international US phone prefixes retain masked output", () => {
   assert.deepEqual(finding("+1 415-555-0123", "Phone number")?.examples, ["(***) ***-0123"]);
 });
