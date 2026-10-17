@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("space-delimited SSN candidates are masked", () => {
+  assert.deepEqual(finding("SSN 536 22 1234", "Social Security number")?.examples, ["***-**-1234"]);
+});
+
 test("non-identifier Unicode text stays unflagged", () => {
   assert.equal(scanForPii("研究 résumé 🧬").totalMatches, 0);
 });
