@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("EIN examples expose only the final four digits", () => {
+  assert.deepEqual(finding("EIN 12-3456789", "Employer identification number")?.examples, ["**-***6789"]);
+});
+
 test("phone findings never serialize the complete input number", () => {
   assert.equal(JSON.stringify(scanForPii("415-555-0123")).includes("415-555-0123"), false);
 });
