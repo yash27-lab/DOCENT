@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("uppercase email candidates remain detectable", () => {
+  assert.ok(finding("JANE@EXAMPLE.COM", "Email address"));
+});
+
 test("plus-addressed emails keep masking the local part", () => {
   assert.deepEqual(finding("jane+reports@example.com", "Email address")?.examples, ["j***@example.com"]);
 });
