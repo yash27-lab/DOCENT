@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("unlabeled dates are not treated as labeled birth dates", () => {
+  assert.equal(finding("Meeting date 04/12/1988", "Date of birth"), undefined);
+});
+
 test("EIN examples expose only the final four digits", () => {
   assert.deepEqual(finding("EIN 12-3456789", "Employer identification number")?.examples, ["**-***6789"]);
 });
