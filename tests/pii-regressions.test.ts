@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyPiiScan, scanForPii } from "../electron/pii-detection";
 
+test("birth-date examples never retain the original date", () => {
+  const result = finding("DOB: 04/12/1988", "Date of birth");
+  assert.ok(result);
+  assert.deepEqual(result.examples, ["**/**/****"]);
+});
+
 test("unlabeled dates are not treated as labeled birth dates", () => {
   assert.equal(finding("Meeting date 04/12/1988", "Date of birth"), undefined);
 });
