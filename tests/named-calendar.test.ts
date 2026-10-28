@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isPlausibleDate } from "../electron/extraction-templates";
 
+test("preserves abbreviated month formats", () => {
+  assert.equal(isPlausibleDate("Jan. 31, 2026"), true); assert.equal(isPlausibleDate("31 Jan 2026"), true);
+});
+
 test("rejects zero days in named dates", () => {
   assert.equal(isPlausibleDate("January 0, 2026"), false); assert.equal(isPlausibleDate("0 January 2026"), false);
 });
