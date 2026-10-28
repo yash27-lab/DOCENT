@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isPlausibleDate } from "../electron/extraction-templates";
 
+test("validates month-end lengths consistently", () => {
+  for (const month of ["April", "June", "September", "November"]) { assert.equal(isPlausibleDate(`${month} 31, 2026`), false); assert.equal(isPlausibleDate(`${month} 30, 2026`), true); }
+});
+
 test("preserves case-insensitive month recognition", () => {
   assert.equal(isPlausibleDate("FEBRUARY 28, 2026"), true);
 });
