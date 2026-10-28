@@ -63,9 +63,7 @@ export function isPlausibleDate(value: string) {
     const day = Number(numeric[2]);
     // Preserve two-digit input support using the 2000–2099 calendar.
     const year = Number(numeric[3]) + (numeric[3].length === 2 ? 2000 : 0);
-    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
+    return isCalendarDate(month, day, year);
   }
 
   const monthName =
@@ -73,7 +71,17 @@ export function isPlausibleDate(value: string) {
   const dayFirst =
     /^\d{1,2} (?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?),? (?:19|20)\d{2}$/i;
 
-  return monthName.test(trimmed) || dayFirst.test(trimmed);
+  if (!monthName.test(trimmed) && !dayFirst.test(trimmed)) return false;
+  const monthToken = trimmed.match(/[a-z]+/i)![0].slice(0, 3).toLowerCase();
+  const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(monthToken) + 1;
+  const numbers = trimmed.match(/\d+/g)!;
+  return isCalendarDate(month, Number(numbers[0]), Number(numbers[1]));
+}
+
+function isCalendarDate(month: number, day: number, year: number) {
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
 }
 
 export function isValidZipCode(value: string) {
