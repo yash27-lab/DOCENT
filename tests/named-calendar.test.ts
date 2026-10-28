@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isPlausibleDate } from "../electron/extraction-templates";
 
+test("preserves valid day-first dates", () => {
+  assert.equal(isPlausibleDate("30 April 2026"), true);
+});
+
 test("rejects impossible day-first dates", () => {
   assert.equal(isPlausibleDate("31 April 2026"), false);
 });
