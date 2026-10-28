@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isPlausibleDate } from "../electron/extraction-templates";
 
+test("preserves named date whitespace and rejects trailing junk", () => {
+  assert.equal(isPlausibleDate("  March 31, 2026  "), true); assert.equal(isPlausibleDate("March 31, 2026 extra"), false);
+});
+
 test("validates month-end lengths consistently", () => {
   for (const month of ["April", "June", "September", "November"]) { assert.equal(isPlausibleDate(`${month} 31, 2026`), false); assert.equal(isPlausibleDate(`${month} 30, 2026`), true); }
 });
