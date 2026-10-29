@@ -57,12 +57,12 @@ export function isValidCurrencyAmount(value: string) {
 export function isPlausibleDate(value: string) {
   const trimmed = value.trim();
 
-  const numeric = trimmed.match(/^(\d{1,2})[\/\- ](\d{1,2})[\/\- ](\d{2}|\d{4})$/);
+  const numeric = trimmed.match(/^(\d{1,2})([\/\- ])(\d{1,2})\2(\d{2}|\d{4})$/);
   if (numeric) {
     const month = Number(numeric[1]);
-    const day = Number(numeric[2]);
+    const day = Number(numeric[3]);
     // Preserve two-digit input support using the 2000–2099 calendar.
-    const year = Number(numeric[3]) + (numeric[3].length === 2 ? 2000 : 0);
+    const year = Number(numeric[4]) + (numeric[4].length === 2 ? 2000 : 0);
     return isCalendarDate(month, day, year);
   }
 
