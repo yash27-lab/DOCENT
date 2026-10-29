@@ -2,6 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isPlausibleDate } from "../electron/extraction-templates";
 
+test("September aliases preserve valid dates and reject month overflow", () => {
+  for (const month of ["Sep", "Sept", "September"]) {
+    assert.equal(isPlausibleDate(`${month} 30, 2026`), true);
+    assert.equal(isPlausibleDate(`${month} 31, 2026`), false);
+    assert.equal(isPlausibleDate(`30 ${month} 2026`), true);
+  }
+});
+
 test("numeric and named month-end validation agree for every month", () => {
   const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
