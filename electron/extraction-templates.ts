@@ -406,7 +406,10 @@ export const documentTemplates: DocumentTemplate[] = [
 ];
 
 function countMatches(source: string, patterns: RegExp[]) {
-  return patterns.reduce((total, pattern) => total + (pattern.test(source) ? 1 : 0), 0);
+  return patterns.reduce(
+    (total, pattern) => total + (new RegExp(pattern.source, pattern.flags).test(source) ? 1 : 0),
+    0
+  );
 }
 
 export function scoreTemplate(template: DocumentTemplate, source: string) {
