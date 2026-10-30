@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("extracted field whitespace is normalized", () => {
+  assert.equal(extractWithTemplate(template(), "Value:   alpha   beta  ").fields[0].value, "alpha beta");
+});
+
 test("labels alone do not become extracted values", () => {
   const field = extractWithTemplate(template(), "Value:").fields[0];
   assert.equal(field.status, "Detected label"); assert.equal(field.value, ""); assert.equal(field.validation, "Not checked");
