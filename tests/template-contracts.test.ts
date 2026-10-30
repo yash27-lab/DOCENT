@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("global scoring patterns remain repeatable", () => {
+  const t = template({ anchorPatterns: [/invoice/gi] });
+  const first = scoreTemplate(t, "invoice");
+  assert.deepEqual(scoreTemplate(t, "invoice"), first);
+});
+
 test("support patterns retain one-point scoring weight", () => {
   assert.deepEqual(scoreTemplate(template(), "amount"), { anchorHits: 0, score: 1 });
 });
