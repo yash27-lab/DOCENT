@@ -2,6 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("scoring preserves the caller regex cursor", () => {
+  const pattern = /invoice/g;
+  pattern.lastIndex = 99;
+  assert.equal(scoreTemplate(template({ anchorPatterns: [pattern] }), "invoice").anchorHits, 1);
+  assert.equal(pattern.lastIndex, 99);
+});
+
 test("global scoring patterns remain repeatable", () => {
   const t = template({ anchorPatterns: [/invoice/gi] });
   const first = scoreTemplate(t, "invoice");
