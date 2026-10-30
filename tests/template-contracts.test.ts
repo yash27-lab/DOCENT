@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("empty schemas produce no invented fields", () => {
+  assert.deepEqual(extractWithTemplate(template({ fields: [] }), "text").fields, []);
+});
+
 test("repeated source words do not inflate pattern-hit scores", () => {
   assert.deepEqual(scoreTemplate(template(), "invoice invoice amount amount"), { anchorHits: 1, score: 4 });
 });
