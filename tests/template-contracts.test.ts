@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("fields without validators never claim validation", () => {
+  const field = extractWithTemplate(template(), "Value: unverified").fields[0];
+  assert.equal(field.validation, "Not checked"); assert.equal(field.status, "Extracted");
+});
+
 test("suspect extracted values remain visible for review", () => {
   const t = template(); t.fields[0].validator = () => false;
   const field = extractWithTemplate(t, "Value: review").fields[0];
