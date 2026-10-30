@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("valid extracted values receive checked status", () => {
+  const t = template(); t.fields[0].validator = (value) => value === "ok";
+  const field = extractWithTemplate(t, "Value: ok").fields[0];
+  assert.equal(field.validation, "Valid"); assert.equal(field.confidence, 84);
+});
+
 test("extracted field values remain bounded", () => {
   const field = extractWithTemplate(template(), "Value: " + "x".repeat(250)).fields[0];
   assert.equal(field.value.length, 200);
