@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("missing fields have no value or confidence", () => {
+  const field = extractWithTemplate(template(), "unrelated").fields[0];
+  assert.equal(field.status, "Missing"); assert.equal(field.value, ""); assert.equal(field.confidence, 0);
+});
+
 test("empty schemas produce no invented fields", () => {
   assert.deepEqual(extractWithTemplate(template({ fields: [] }), "text").fields, []);
 });
