@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("extracted field values remain bounded", () => {
+  const field = extractWithTemplate(template(), "Value: " + "x".repeat(250)).fields[0];
+  assert.equal(field.value.length, 200);
+});
+
 test("extracted field whitespace is normalized", () => {
   assert.equal(extractWithTemplate(template(), "Value:   alpha   beta  ").fields[0].value, "alpha beta");
 });
