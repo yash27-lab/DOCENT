@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractWithTemplate, scoreTemplate, type DocumentTemplate } from "../electron/extraction-templates";
 
+test("repeated source words do not inflate pattern-hit scores", () => {
+  assert.deepEqual(scoreTemplate(template(), "invoice invoice amount amount"), { anchorHits: 1, score: 4 });
+});
+
 test("scoring preserves the caller regex cursor", () => {
   const pattern = /invoice/g;
   pattern.lastIndex = 99;
